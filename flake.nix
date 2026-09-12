@@ -2,7 +2,7 @@
 
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.zst";
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -39,12 +39,11 @@
         system:
         let
           pkgs = pkgsFor system;
-          bagel = pkgs.callPackage ./nix/package.nix { };
         in
         {
-          inherit bagel;
-          default = bagel;
+          bagel = pkgs.callPackage ./nix/package.nix { };
           dashboard = pkgs.callPackage ./nix/dashboard.nix { };
+          default = self.packages.${system}.bagel;
         }
       );
 
