@@ -23,16 +23,18 @@ use crate::{
       CaptureError,
    },
    hex_encode,
+   tls::cloudflare::CloudflareFingerprint,
    wire::Cursor,
 };
 
 /// TLS `ClientHello` fingerprint data.
 #[derive(Clone, Debug, Default)]
 pub struct TlsFingerprint {
-   native:  Capture<Arc<ClientHello>>,
+   native:     Capture<Arc<ClientHello>>,
    /// Digest of what a trusted TLS-terminating proxy relayed about the
    /// handshake, empty when none did.
-   proxied: Capture<ProxiedFingerprint>,
+   proxied:    Capture<ProxiedFingerprint>,
+   cloudflare: Capture<CloudflareFingerprint>,
 }
 
 impl From<Capture<Arc<ClientHello>>> for TlsFingerprint {
@@ -40,6 +42,7 @@ impl From<Capture<Arc<ClientHello>>> for TlsFingerprint {
       Self {
          native,
          proxied: Capture::Unavailable,
+         cloudflare: Capture::Unavailable,
       }
    }
 }
@@ -54,20 +57,34 @@ impl TlsFingerprint {
       self.proxied = proxied;
    }
 
+   pub fn set_cloudflare(&mut self, cloudflare: Capture<CloudflareFingerprint>) {
+      self.cloudflare = cloudflare;
+   }
+
    #[must_use]
    pub fn policy_fields(&self) -> HashMap<String, String> {
       let native = !matches!(self.native, Capture::Unavailable);
       let proxied = matches!(self.proxied, Capture::Complete(_));
-      let source = match (native, proxied) {
-         (true, true) => "native+proxy",
-         (true, false) => "native",
-         (false, true) => "proxy",
-         (false, false) => "none",
+      let mut sources = Vec::new();
+      if native {
+         sources.push("native");
+      }
+      if proxied {
+         sources.push("proxy");
+      }
+      if matches!(self.cloudflare, Capture::Complete(_)) {
+         sources.push("cloudflare");
+      }
+      let source = if sources.is_empty() {
+         "none".to_owned()
+      } else {
+         sources.join("+")
       };
       let mut fields = HashMap::from([
-         ("source".to_owned(), source.to_owned()),
+         ("source".to_owned(), source),
          ("tls_status".to_owned(), self.native.to_string()),
          ("proxied_status".to_owned(), self.proxied.to_string()),
+         ("edge_status".to_owned(), self.cloudflare.to_string()),
       ]);
       if let Capture::Complete(hello) = &self.native {
          for (key, value) in [
@@ -108,6 +125,9 @@ impl TlsFingerprint {
          } else {
             fields.insert("proxied_status".to_owned(), "partial".to_owned());
          }
+      }
+      if let Capture::Complete(edge) = &self.cloudflare {
+         edge.policy_fields(&mut fields);
       }
       fields
    }

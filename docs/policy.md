@@ -106,10 +106,11 @@ The rest are maps.
 `networks` is only populated when a client IP resolves, so a condition indexing
 a network name finds no entry rather than false when the address is missing.
 
-`fp` always includes `source`, `tls_status`, `proxied_status` and
-`http2_status` as strings. `source` is one of `none`, `native`, `proxy` or
-`native+proxy`. Each status is one of `unavailable`, `incomplete`, `invalid`,
-`limited`, `untrusted` or `complete`, and `proxied_status` can also be
+`fp` always includes `source`, `tls_status`, `proxied_status`, `edge_status` and
+`http2_status` as strings. `source` is `none` or the available sources joined
+with `+`, using `native`, `proxy` and `cloudflare`. Each status is one of
+`unavailable`, `incomplete`, `invalid`,
+`limited`, `untrusted` or `complete`, and `proxied_status` and `edge_status` can also be
 `partial`. All `fp` values are strings. Native detail keys require a complete
 capture, while a partial proxy report exposes the metadata it supplied.
 
@@ -155,13 +156,55 @@ peer gates the TLS header even when PROXY rewrites the client source, and
 PROXY source takes precedence over the client IP header for that source. Unix
 connections without a transport address use the localhost trust policy. It only
 describes the client when the proxy terminates the client TLS session itself.
-Behind a CDN such as Cloudflare the header describes its origin-pull client,
-so leave it unset when scoring visitors.
+Behind a CDN such as Cloudflare, nginx TLS variables describe the CDN's
+origin-pull client. Cloudflare visitor metadata uses the Transform Rule mode
+below.
+
+### Cloudflare visitor TLS
+
+Use a Request Header Transform Rule with **Set dynamic** on
+`x-bagel-client-tls` and this expression.
+
+```text
+concat(cf.tls_version, ";", cf.tls_cipher, ";", http.request.version, ";", cf.tls_client_ciphers_sha1, ";", cf.tls_client_extensions_sha1, ";", to_string(cf.tls_client_hello_length))
+```
+
+In the same rule, **Set static** on `x-bagel-origin-token` to a random
+64-character hexadecimal secret. Configure its SHA-256 digest in Bagel.
+
+```kdl
+client-tls-header "x-bagel-client-tls" cloudflare-token-sha256="<64 hexadecimal characters>"
+trusted-proxies "::1/128"
+```
+
+Use HTTPS to the origin and restrict access to trusted proxies. Bagel checks
+the peer and token before accepting metadata, then strips both headers.
+Any routes bypassing Bagel must strip them too. Invalid reports never fall
+back to the nginx format.
+
+| Field | Value |
+| --- | --- |
+| `edge_status` | Capture status, with `partial` for authenticated reports missing TLS fields |
+| `edge_tls_version` | Negotiated TLS version code such as `13` |
+| `edge_cipher` | Negotiated cipher name |
+| `edge_http` | Visitor protocol such as `HTTP/2` or `HTTP/3` |
+| `edge_ciphers_sha1` | Hexadecimal SHA-1 of the advertised cipher list |
+| `edge_extensions_sha1` | Hexadecimal SHA-1 of the advertised extensions |
+| `edge_hello_length` | ClientHello length as a decimal string |
+
+These observations do not reconstruct JA4. Raw handshake hashes can vary with
+extension ordering and GREASE, so collect representative samples before using
+them in policy. Missing or invalid metadata is visible through `edge_status`
+and does not automatically deny a request.
 
 Decision logs include `fp_source`, `fp_tls_status`, `fp_proxied_status`,
 `fp_http2`, `fp_http2_status`, `fp_ja4` and `fp_proxied`. A familiar browser
 fingerprint does not prove a visitor is human. Use it as a scoring signal
 alongside request rates, challenge results and header consistency.
+
+Cloudflare reports also populate decision log fields prefixed with `fp_edge_`
+for status, TLS version, HTTP protocol, cipher and extension hashes, and
+ClientHello length.
 
 `lease["active"]` is false unless the daemon has attached its defense plane. It
 matches the whole lease network rather than one address, and leases whose

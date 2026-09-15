@@ -77,6 +77,10 @@ use crate::{
    template,
    tls::{
       TlsFingerprint,
+      cloudflare::{
+         CloudflareFingerprint,
+         ORIGIN_TOKEN_HEADER,
+      },
       fingerprint::ProxiedFingerprint,
    },
 };
@@ -103,12 +107,12 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
    };
    let host = canonical.as_str().to_owned();
 
-   let client_ip = Some(state.client_ip(addr.ip(), &req));
-   if let Some(ip) = client_ip {
-      req.extensions_mut()
-         .insert(SocketAddr::new(ip, addr.port()));
-   }
-   if let Some(name) = state.config.client_tls_header.as_deref() {
+   let resolved_ip = state.client_ip(addr.ip(), &req);
+   let client_ip = Some(resolved_ip);
+   req.extensions_mut()
+      .insert(SocketAddr::new(resolved_ip, addr.port()));
+   if let Some(forwarded) = &state.config.client_tls_header {
+      let name = forwarded.name();
       let transport_ip = req.extensions().get::<ConnectionPeer>().map_or_else(
          || addr.ip(),
          |peer| {
@@ -118,23 +122,32 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
          },
       );
       let trusted = state.policy.client_ip.trusts(transport_ip);
-      let mut values = req.headers().get_all(name).iter();
-      let proxied = match values.next() {
-         None => Capture::Unavailable,
-         Some(_) if !trusted => Capture::Failed(CaptureError::Untrusted),
-         Some(_) if values.next().is_some() => Capture::Failed(CaptureError::Invalid),
-         Some(value) => {
-            value
-               .to_str()
-               .map_err(|_| CaptureError::Invalid)
-               .and_then(str::parse::<ProxiedFingerprint>)
-               .into()
-         },
-      };
-      req.extensions_mut()
-         .get_or_insert_default::<TlsFingerprint>()
-         .set_proxied(proxied);
+      if let Some(token_sha256) = forwarded.cloudflare_token_sha256() {
+         let captured = CloudflareFingerprint::capture(req.headers(), name, token_sha256, trusted);
+         req.extensions_mut()
+            .get_or_insert_default::<TlsFingerprint>()
+            .set_cloudflare(captured);
+      } else {
+         let mut values = req.headers().get_all(name).iter();
+         let captured = match values.next() {
+            None => Capture::Unavailable,
+            Some(_) if !trusted => Capture::Failed(CaptureError::Untrusted),
+            Some(_) if values.next().is_some() => Capture::Failed(CaptureError::Invalid),
+            Some(value) => {
+               value
+                  .to_str()
+                  .map_err(|_| CaptureError::Invalid)
+                  .and_then(str::parse::<ProxiedFingerprint>)
+                  .into()
+            },
+         };
+         req.extensions_mut()
+            .get_or_insert_default::<TlsFingerprint>()
+            .set_proxied(captured);
+      }
+      req.headers_mut().remove(name);
    }
+   req.headers_mut().remove(ORIGIN_TOKEN_HEADER);
 
    let Some(backend) = state.runtime.backends.select(&host) else {
       tracing::debug!(host, "no backend for host");
@@ -335,6 +348,12 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       fp_source = ctx.fp.get("source"),
       fp_tls_status = ctx.fp.get("tls_status"),
       fp_proxied_status = ctx.fp.get("proxied_status"),
+      fp_edge_status = ctx.fp.get("edge_status"),
+      fp_edge_tls_version = ctx.fp.get("edge_tls_version"),
+      fp_edge_http = ctx.fp.get("edge_http"),
+      fp_edge_ciphers_sha1 = ctx.fp.get("edge_ciphers_sha1"),
+      fp_edge_extensions_sha1 = ctx.fp.get("edge_extensions_sha1"),
+      fp_edge_hello_length = ctx.fp.get("edge_hello_length"),
       fp_http2 = ctx.fp.get("http2"),
       fp_http2_status = ctx.fp.get("http2_status"),
       candidate_threshold = candidate.map(|threshold| threshold.value),

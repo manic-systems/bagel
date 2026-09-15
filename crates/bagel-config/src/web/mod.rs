@@ -31,6 +31,68 @@ pub use bind::{
 use knead::ast::Node;
 pub use policy::PolicyConfig;
 
+#[derive(Clone)]
+pub struct ClientTlsHeader {
+   name:                    String,
+   cloudflare_token_sha256: Option<[u8; 32]>,
+}
+
+impl ClientTlsHeader {
+   #[must_use]
+   pub fn name(&self) -> &str {
+      &self.name
+   }
+
+   #[must_use]
+   pub const fn cloudflare_token_sha256(&self) -> Option<&[u8; 32]> {
+      self.cloudflare_token_sha256.as_ref()
+   }
+}
+
+#[derive(knead_derive::Decode)]
+struct ClientTlsInput {
+   #[knead(argument)]
+   name:                    String,
+   #[knead(property(name = "cloudflare-token-sha256"))]
+   cloudflare_token_sha256: Option<String>,
+}
+
+impl TryFrom<ClientTlsInput> for ClientTlsHeader {
+   type Error = Error;
+
+   fn try_from(input: ClientTlsInput) -> Result<Self> {
+      if input.name.is_empty()
+         || input.name.eq_ignore_ascii_case("x-bagel-origin-token")
+         || !input
+            .name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+      {
+         return Err(Error::Config("invalid client TLS header name".into()));
+      }
+      let cloudflare_token_sha256 = input
+         .cloudflare_token_sha256
+         .map(|encoded| {
+            let mut key = [0; 32];
+            if encoded.len() != 64 || !encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+               return Err(Error::Config(
+                  "cloudflare-token-sha256 requires a 32-byte hexadecimal SHA-256 digest".into(),
+               ));
+            }
+            for (index, byte) in key.iter_mut().enumerate() {
+               *byte = u8::from_str_radix(&encoded[index * 2..index * 2 + 2], 16)
+                  .expect("hexadecimal token digest was validated");
+            }
+            Ok(key)
+         })
+         .transpose()?;
+      Ok(Self {
+         name: input.name,
+         cloudflare_token_sha256,
+      })
+   }
+}
+
 use crate::{
    decode::{
       Argument,
@@ -270,7 +332,7 @@ pub struct Config {
    pub challenge_http_code:      u16,
    pub cache_dir:                Option<String>,
    pub client_ip_header:         Option<String>,
-   pub client_tls_header:        Option<String>,
+   pub client_tls_header:        Option<ClientTlsHeader>,
    pub trusted_proxies:          Option<Vec<String>>,
    pub backends:                 Vec<BackendConfig>,
    pub policy:                   PolicyConfig,
@@ -373,8 +435,7 @@ impl Config {
             self.client_ip_header = Some(header);
          },
          "client-tls-header" => {
-            let Argument(header) = decode_node::<Argument<String>>(node)?;
-            self.client_tls_header = Some(header);
+            self.client_tls_header = Some(decode_node::<ClientTlsInput>(node)?.try_into()?);
          },
          "trusted-proxies" => {
             let Arguments(proxies) = decode_node::<Arguments<String>>(node)?;
