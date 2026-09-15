@@ -75,13 +75,14 @@ const fn is_zero(level: &u32) -> bool {
 /// The full token payload stored in the encrypted cookie.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Token {
-   pub state: HashMap<String, TokenChallenge>,
+   pub session: [u8; 32],
+   pub state:   HashMap<String, TokenChallenge>,
    /// Token expiry (Unix epoch seconds).
-   pub exp:   i64,
+   pub exp:     i64,
    /// Token not-before (Unix epoch seconds).
-   pub nbf:   i64,
+   pub nbf:     i64,
    /// Token issued-at (Unix epoch seconds).
-   pub iat:   i64,
+   pub iat:     i64,
 }
 
 /// Encrypt and sign a Token into a cookie value.
@@ -318,10 +319,11 @@ mod tests {
 
       let now = unix_timestamp();
       let token = Token {
-         state: HashMap::new(),
-         exp:   now + 3600,
-         nbf:   now - 60,
-         iat:   now,
+         session: [7; 32],
+         state:   HashMap::new(),
+         exp:     now + 3600,
+         nbf:     now - 60,
+         iat:     now,
       };
 
       let sealed = seal_token(&token, &signing_key, &cookie_key).unwrap();

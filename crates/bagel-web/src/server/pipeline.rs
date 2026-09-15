@@ -512,19 +512,34 @@ async fn finalize_response(
 
    if !challenge_state.injections.is_empty() {
       resp = inject_fragments(resp, &challenge_state.injections);
+      resp.headers_mut().insert(
+         header::CACHE_CONTROL,
+         HeaderValue::from_static("private, no-store"),
+      );
    }
 
    merge_vary(resp.headers_mut());
 
-   if let Some(cookie) = challenge_state.seal_cookie(
+   match challenge_state.seal_cookie(
       host,
       host_is_ip,
       &state.keys.signing_key,
       &state.keys.pkcs8_seed,
       client_ip,
-   ) && let Ok(val) = HeaderValue::from_str(&cookie)
-   {
-      resp.headers_mut().append(header::SET_COOKIE, val);
+   ) {
+      Ok(Some(cookie)) => {
+         let value = HeaderValue::from_str(&cookie).expect("sealed cookie uses valid header bytes");
+         resp.headers_mut().append(header::SET_COOKIE, value);
+         resp.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+         );
+      },
+      Ok(None) => {},
+      Err(error) => {
+         tracing::error!(%error, "failed to seal challenge session");
+         return body::status(StatusCode::INTERNAL_SERVER_ERROR);
+      },
    }
 
    resp

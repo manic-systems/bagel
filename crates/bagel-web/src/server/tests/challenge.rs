@@ -18,10 +18,16 @@ async fn cookie_challenge_flow_survives_second_boundaries() {
 
    let resp = app_send(&app, "/", &[]).await;
    assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
-   assert!(
-      resp.headers().get(header::SET_COOKIE).is_none(),
-      "issuing a challenge must not hand out the passed state"
-   );
+   let session = resp
+      .headers()
+      .get(header::SET_COOKIE)
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .split(';')
+      .next()
+      .unwrap()
+      .to_owned();
    let hv = resp
       .headers()
       .get(header::LOCATION)
@@ -30,7 +36,7 @@ async fn cookie_challenge_flow_survives_second_boundaries() {
    let location = hv.to_owned();
 
    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
-   let resp = app_send(&app, &location, &[]).await;
+   let resp = app_send(&app, &location, &[("cookie", &session)]).await;
    assert_eq!(
       resp.status(),
       StatusCode::TEMPORARY_REDIRECT,
@@ -60,10 +66,18 @@ async fn pow_interstitial_cookie_grants_no_pass() {
 
    let resp = app_send(&app, "/", &[]).await;
    assert_eq!(resp.status(), StatusCode::IM_A_TEAPOT);
-   assert!(
-      resp.headers().get(header::SET_COOKIE).is_none(),
-      "the interstitial must not seal passed state before the proof"
-   );
+   let session = resp
+      .headers()
+      .get(header::SET_COOKIE)
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .split(';')
+      .next()
+      .unwrap()
+      .to_owned();
+   let retry = app_send(&app, "/", &[("cookie", &session)]).await;
+   assert_eq!(retry.status(), StatusCode::IM_A_TEAPOT);
 }
 
 #[tokio::test]
@@ -79,6 +93,16 @@ async fn background_pow_solves_on_the_live_page() {
       StatusCode::OK,
       "the page itself is never blocked"
    );
+   let session = resp
+      .headers()
+      .get(header::SET_COOKIE)
+      .unwrap()
+      .to_str()
+      .unwrap()
+      .split(';')
+      .next()
+      .unwrap()
+      .to_owned();
    let body = body_text(resp).await;
    assert!(
       body.starts_with("<html><body>main /"),
@@ -116,6 +140,7 @@ async fn background_pow_solves_on_the_live_page() {
       .uri("/__bagel/pow/verify")
       .header("host", "example.test")
       .header("content-type", "text/plain")
+      .header("cookie", &session)
       .body(Body::from(
          BASE64URL_NOPAD.encode(&pack_solution([7, 7, 7, 7], &solution)),
       ))

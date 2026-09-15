@@ -377,7 +377,9 @@ async fn ip_hosts_get_host_only_cookies() {
       modified:   false,
       injections: Vec::new(),
    };
-   state.issue_challenge("cookie", &[1_u8; 32], std::time::Duration::from_mins(1));
+   state
+      .issue_challenge("cookie", &[1_u8; 32], std::time::Duration::from_mins(1))
+      .unwrap();
 
    let rng = SystemRandom::new();
    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
@@ -385,11 +387,13 @@ async fn ip_hosts_get_host_only_cookies() {
 
    let dns_cookie = state
       .seal_cookie("example.test", false, &signing_key, pkcs8.as_ref(), None)
+      .unwrap()
       .unwrap();
    assert!(dns_cookie.contains("Domain=example.test;"), "{dns_cookie}");
 
    let ip_cookie = state
       .seal_cookie("192.0.2.7", true, &signing_key, pkcs8.as_ref(), None)
+      .unwrap()
       .unwrap();
    assert!(!ip_cookie.contains("Domain="), "{ip_cookie}");
 }

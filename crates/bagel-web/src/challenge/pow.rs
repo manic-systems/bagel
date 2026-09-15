@@ -50,7 +50,7 @@ const RUNTIME: &str = "/__bagel/static/runtime.mjs";
 /// A proof-of-work challenge solved by the wasm module. `pow-sha256` counts
 /// zero nibbles of one digest, `pow-scratch` counts zero bits after a
 /// scratchpad walk.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PowChallenge {
    pub kind:        Kind,
    pub difficulty:  u32,
@@ -77,7 +77,7 @@ impl PowChallenge {
    /// `background` settles in place. Embeds qualify, while interstitials
    /// reload.
    fn widget(
-      &self,
+      self,
       ctx: &ChallengeContext<'_>,
       presentation: Presentation,
       background: bool,

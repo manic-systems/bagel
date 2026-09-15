@@ -1,14 +1,17 @@
 use std::{
-   collections::HashMap,
    net::{
       IpAddr,
       SocketAddr,
    },
+   time::Duration,
 };
 
 use bagel_solver::codec::unpack_solution;
 use bytes::Bytes;
-use data_encoding::BASE64URL_NOPAD;
+use data_encoding::{
+   BASE64URL_NOPAD,
+   HEXLOWER,
+};
 use http::{
    Method,
    StatusCode,
@@ -22,6 +25,7 @@ use http_body_util::{
 };
 
 use crate::{
+   SourceNetwork,
    body::{
       self,
       Body,
@@ -32,12 +36,8 @@ use crate::{
       ChallengeRuntime,
       Redemption,
       RequestChallengeState,
-      key::{
-         bucket_expiry,
-         derive_challenge_key,
-      },
+      pending::ChallengeBinding,
       token::{
-         Token,
          TokenChallenge,
          cookie_name,
          derive_cookie_key,
@@ -51,7 +51,6 @@ use crate::{
          percent_decode,
       },
    },
-   hex_encode,
    host::CanonicalHost,
    ip_network_prefix,
    server::handle_request,
@@ -139,25 +138,6 @@ fn method_not_allowed(allow: &'static str) -> Response {
    resp
 }
 
-/// Match a presented key against the two expiry buckets accepted by issuance.
-fn match_recent_key(
-   challenge_name: &str,
-   client_ip: Option<IpAddr>,
-   duration_secs: i64,
-   key_fingerprint: &[u8; 32],
-   presented_hex: &str,
-) -> Option<(ChallengeKey, i64)> {
-   let step = duration_secs.max(1);
-   let bucket = bucket_expiry(unix_timestamp(), step);
-   for expiry in [bucket, bucket - step] {
-      let key = derive_challenge_key(challenge_name, client_ip, expiry, key_fingerprint);
-      if constant_time_eq::constant_time_eq(hex_encode(&key).as_bytes(), presented_hex.as_bytes()) {
-         return Some((key, expiry));
-      }
-   }
-   None
-}
-
 /// Confine the redirect to a same-origin path.
 /// Reject decoded control bytes and absolute URLs.
 fn safe_redirect(raw: &str) -> Option<String> {
@@ -197,7 +177,7 @@ fn challenge_cookie(host: &CanonicalHost, sealed: &str, expiry: i64) -> String {
    } else {
       format!(" Domain={host};")
    };
-   format!("{cname}={sealed}; Path=/;{domain} Expires={exp_str}; SameSite=Lax")
+   format!("{cname}={sealed}; Path=/;{domain} Expires={exp_str}; HttpOnly; SameSite=Lax")
 }
 
 /// Generic verify handler: validates the hex key token, issues a signed cookie,
@@ -222,29 +202,37 @@ fn handle_verify(shared: &SharedState, challenge_name: &str, req: &Request) -> R
    let Some(host) = canonical_request_host(req) else {
       return body::text(StatusCode::BAD_REQUEST, "invalid host");
    };
-   let client_ip = client_ip_for(&state, req);
+   let Some(client_ip) = client_ip_for(&state, req) else {
+      return body::text(StatusCode::BAD_REQUEST, "missing client address");
+   };
 
    if reg.runtime.redemption() != Redemption::Redirect {
       return body::text(StatusCode::BAD_REQUEST, "challenge needs a posted solution");
    }
 
-   let Some((challenge_key, _)) = match_recent_key(
-      challenge_name,
-      client_ip,
-      reg.duration.as_secs() as i64,
-      &state.keys.key_fingerprint,
-      token_hex,
-   ) else {
+   let client = Client {
+      state:   &state,
+      headers: req.headers(),
+      host:    &host,
+      ip:      client_ip,
+   };
+   let binding = match client.admit(challenge_name) {
+      Ok(binding) => binding,
+      Err(response) => return response,
+   };
+   let Some(key) = HEXLOWER
+      .decode(token_hex.as_bytes())
+      .ok()
+      .and_then(|bytes| <ChallengeKey>::try_from(bytes).ok())
+   else {
+      return body::text(StatusCode::BAD_REQUEST, "invalid token");
+   };
+   let Some(challenge_key) = state.runtime.pending_challenges.redeem(&key, &binding, 0) else {
       return body::text(StatusCode::FORBIDDEN, "invalid token");
    };
 
    let cookie = match seal_pass(
-      &Client {
-         state:   &state,
-         headers: req.headers(),
-         host:    &host,
-         ip:      client_ip,
-      },
+      &client,
       challenge_name,
       &challenge_key,
       Vec::new(),
@@ -270,7 +258,55 @@ struct Client<'a> {
    state:   &'a StateInner,
    headers: &'a header::HeaderMap,
    host:    &'a CanonicalHost,
-   ip:      Option<IpAddr>,
+   ip:      IpAddr,
+}
+
+impl Client<'_> {
+   fn admit(&self, challenge_name: &str) -> Result<ChallengeBinding, Response> {
+      if self
+         .state
+         .runtime
+         .backends
+         .select(self.host.as_str())
+         .is_none()
+      {
+         return Err(body::status(StatusCode::BAD_REQUEST));
+      }
+      let _ = self
+         .state
+         .runtime
+         .rate_tracker
+         .record(self.host.as_str(), SourceNetwork::from_ip(self.ip));
+      if !self
+         .state
+         .runtime
+         .pending_challenges
+         .admit_verification(self.host.as_str(), self.ip)
+      {
+         return Err(body::status(StatusCode::TOO_MANY_REQUESTS));
+      }
+      let carried = RequestChallengeState::from_headers(
+         self.headers,
+         self.host.as_str(),
+         &self.state.keys.public_key_bytes,
+         &self.state.keys.pkcs8_seed,
+         Some(self.ip),
+      );
+      let token = carried
+         .token
+         .ok_or_else(|| body::text(StatusCode::FORBIDDEN, "missing challenge session"))?;
+      Ok(ChallengeBinding::new(
+         &token.session,
+         self.host.as_str(),
+         self.ip,
+         challenge_name,
+         self
+            .headers
+            .get(header::USER_AGENT)
+            .map_or(b"unknown".as_slice(), http::HeaderValue::as_bytes),
+         self.state.policy.revision,
+      ))
+   }
 }
 
 /// Expiry starts at now. Merge earlier passes because a rule may issue two
@@ -297,19 +333,13 @@ fn seal_pass(
       host.as_str(),
       &state.keys.public_key_bytes,
       &state.keys.pkcs8_seed,
-      client_ip,
+      Some(client_ip),
    );
 
-   carried.token.get_or_insert_with(|| {
-      Token {
-         state: HashMap::new(),
-         exp:   expiry,
-         nbf:   now,
-         iat:   now,
-      }
-   });
-
-   let token = carried.token.as_mut().expect("inserted above");
+   let token = carried
+      .token
+      .as_mut()
+      .ok_or_else(|| body::text(StatusCode::FORBIDDEN, "missing challenge session"))?;
    token
       .state
       .insert(challenge_name.to_owned(), TokenChallenge {
@@ -325,7 +355,7 @@ fn seal_pass(
       token.exp = expiry;
    }
 
-   let ip_prefix = client_ip.map(ip_network_prefix).unwrap_or_default();
+   let ip_prefix = ip_network_prefix(client_ip);
    let cookie_key = derive_cookie_key(host.as_str(), &ip_prefix, &state.keys.pkcs8_seed);
 
    match seal_token(token, &state.keys.signing_key, &cookie_key) {
@@ -349,11 +379,33 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
    let Some(host) = canonical_request_host(&req) else {
       return body::text(StatusCode::BAD_REQUEST, "invalid host");
    };
-   let client_ip = client_ip_for(&state, &req);
+   let Some(client_ip) = client_ip_for(&state, &req) else {
+      return body::text(StatusCode::BAD_REQUEST, "missing client address");
+   };
+   let ChallengeRuntime::Pow(pow) = reg.runtime else {
+      return body::text(StatusCode::BAD_REQUEST, "not a PoW challenge");
+   };
 
    let (parts, incoming) = req.into_parts();
-   let Ok(collected) = Limited::new(incoming, 4096).collect().await else {
-      return body::text(StatusCode::BAD_REQUEST, "body too large");
+   let client = Client {
+      state:   &state,
+      headers: &parts.headers,
+      host:    &host,
+      ip:      client_ip,
+   };
+   let binding = match client.admit(challenge_name) {
+      Ok(binding) => binding,
+      Err(response) => return response,
+   };
+   let collected = match tokio::time::timeout(
+      Duration::from_secs(10),
+      Limited::new(incoming, 4096).collect(),
+   )
+   .await
+   {
+      Ok(Ok(collected)) => collected,
+      Ok(Err(_)) => return body::text(StatusCode::BAD_REQUEST, "body too large"),
+      Err(_) => return body::status(StatusCode::REQUEST_TIMEOUT),
    };
 
    let Some(solution) = BASE64URL_NOPAD
@@ -364,34 +416,37 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
       return body::text(StatusCode::BAD_REQUEST, "invalid solution");
    };
 
-   let Some((challenge_key, _)) = match_recent_key(
-      challenge_name,
-      client_ip,
-      reg.duration.as_secs() as i64,
-      &state.keys.key_fingerprint,
-      &hex_encode(&solution.key),
-   ) else {
-      return body::text(StatusCode::FORBIDDEN, "invalid challenge key");
-   };
-
-   let ChallengeRuntime::Pow(ref pow) = reg.runtime else {
-      return body::text(StatusCode::BAD_REQUEST, "not a PoW challenge");
-   };
    let level = u32::from(solution.difficulty);
    if !pow.difficulty_range().contains(&level) {
       return body::text(StatusCode::BAD_REQUEST, "invalid difficulty");
    }
-   if !pow.verify(&challenge_key, solution.nonce, level) {
-      return body::text(StatusCode::FORBIDDEN, "invalid proof of work");
+   let Some(permit) = state.runtime.pending_challenges.verification_slot() else {
+      return body::status(StatusCode::SERVICE_UNAVAILABLE);
+   };
+   let Some(challenge_key) =
+      state
+         .runtime
+         .pending_challenges
+         .redeem(&solution.key, &binding, level)
+   else {
+      return body::text(StatusCode::FORBIDDEN, "invalid or spent challenge");
+   };
+   match tokio::task::spawn_blocking(move || {
+      let _permit = permit;
+      pow.verify(&solution.key, solution.nonce, level)
+   })
+   .await
+   {
+      Ok(true) => {},
+      Ok(false) => return body::text(StatusCode::FORBIDDEN, "invalid proof of work"),
+      Err(error) => {
+         tracing::error!(%error, "proof verification task failed");
+         return body::status(StatusCode::INTERNAL_SERVER_ERROR);
+      },
    }
 
    let cookie = match seal_pass(
-      &Client {
-         state:   &state,
-         headers: &parts.headers,
-         host:    &host,
-         ip:      client_ip,
-      },
+      &client,
       challenge_name,
       &challenge_key,
       solution.nonce.to_be_bytes().to_vec(),
@@ -405,6 +460,7 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
    Response::builder()
       .status(StatusCode::OK)
       .header(header::SET_COOKIE, cookie)
+      .header(header::CACHE_CONTROL, "private, no-store")
       .header(header::CONTENT_TYPE, "application/json")
       .body(Body::from(r#"{"ok":true}"#))
       .expect("pow verify response parts are valid")

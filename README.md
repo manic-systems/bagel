@@ -143,6 +143,9 @@ suspicious score buys a harder proof without a second challenge. A pass is
 sealed with the difficulty it was verified at, and a gate accepts any pass at
 or above the level it asks for.
 
+Each challenge gets a random key bound to its session and request identity.
+Redemption consumes it once, so replaying a proof cannot issue another pass.
+
 ACME needs a build with the `bagel-daemon` crate's `acme` feature and a TCP
 listener, and an ACME configuration the build can't honor fails validation
 rather than falling back to plaintext. Crawler verification by

@@ -1,6 +1,7 @@
 pub mod cookie;
 pub mod dnsbl;
 pub mod key;
+pub mod pending;
 pub mod pow;
 pub mod refresh;
 pub mod token;
@@ -18,7 +19,13 @@ use bagel_solver::{
    scratch,
 };
 use http::header;
-use ring::signature::Ed25519KeyPair;
+use ring::{
+   rand::{
+      SecureRandom as _,
+      SystemRandom,
+   },
+   signature::Ed25519KeyPair,
+};
 
 use self::{
    cookie::CookieChallenge,
@@ -319,6 +326,32 @@ pub struct RequestChallengeState {
 }
 
 impl RequestChallengeState {
+   pub fn ensure_session(&mut self, duration: Duration) -> error::Result<[u8; 32]> {
+      let now = unix_timestamp();
+      let expiry = now.saturating_add(duration.as_secs() as i64);
+      if let Some(token) = &mut self.token {
+         if token.exp < expiry {
+            token.exp = expiry;
+            self.modified = true;
+         }
+         return Ok(token.session);
+      }
+
+      let mut session = [0; 32];
+      SystemRandom::new()
+         .fill(&mut session)
+         .map_err(|_| error::Error::Crypto("challenge session randomness unavailable".into()))?;
+      self.token = Some(Token {
+         session,
+         state: HashMap::new(),
+         exp: expiry,
+         nbf: now,
+         iat: now,
+      });
+      self.modified = true;
+      Ok(session)
+   }
+
    pub fn from_headers(
       headers: &header::HeaderMap,
       host: &str,
@@ -364,7 +397,13 @@ impl RequestChallengeState {
       }
    }
 
-   pub fn issue_challenge(&mut self, challenge_name: &str, key: &ChallengeKey, duration: Duration) {
+   pub fn issue_challenge(
+      &mut self,
+      challenge_name: &str,
+      key: &ChallengeKey,
+      duration: Duration,
+   ) -> error::Result<()> {
+      self.ensure_session(duration)?;
       let now = unix_timestamp();
       let exp = now.saturating_add(duration.as_secs() as i64);
 
@@ -378,14 +417,7 @@ impl RequestChallengeState {
          iat: now,
       };
 
-      let token = self.token.get_or_insert_with(|| {
-         Token {
-            state: HashMap::new(),
-            exp,
-            nbf: now,
-            iat: now,
-         }
-      });
+      let token = self.token.as_mut().expect("challenge session was created");
 
       token.state.insert(challenge_name.to_owned(), tc);
       if token.exp < exp {
@@ -393,6 +425,7 @@ impl RequestChallengeState {
       }
 
       self.modified = true;
+      Ok(())
    }
 
    /// A pass sealed at a higher level than `level` still counts, so a client
@@ -426,33 +459,25 @@ impl RequestChallengeState {
       signing_key: &Ed25519KeyPair,
       server_key_bytes: &[u8],
       client_ip: Option<IpAddr>,
-   ) -> Option<String> {
-      let token = self.token.as_ref()?;
-      if !self.modified {
-         return None;
-      }
+   ) -> error::Result<Option<String>> {
+      let Some(token) = self.token.as_ref().filter(|_| self.modified) else {
+         return Ok(None);
+      };
 
       let network_prefix = client_ip.map(ip_network_prefix).unwrap_or_default();
       let cookie_key = derive_cookie_key(host, &network_prefix, server_key_bytes);
       let cname = cookie_name(host);
 
-      match seal_token(token, signing_key, &cookie_key) {
-         Ok(sealed) => {
-            let exp_str = format_http_date(token.exp);
-            let domain = if host_is_ip {
-               String::new()
-            } else {
-               format!(" Domain={host};")
-            };
+      let sealed = seal_token(token, signing_key, &cookie_key)?;
+      let exp_str = format_http_date(token.exp);
+      let domain = if host_is_ip {
+         String::new()
+      } else {
+         format!(" Domain={host};")
+      };
 
-            Some(format!(
-               "{cname}={sealed}; Path=/;{domain} Expires={exp_str}; SameSite=Lax"
-            ))
-         },
-         Err(err) => {
-            tracing::error!(error = %err, "failed to seal challenge token");
-            None
-         },
-      }
+      Ok(Some(format!(
+         "{cname}={sealed}; Path=/;{domain} Expires={exp_str}; HttpOnly; SameSite=Lax"
+      )))
    }
 }

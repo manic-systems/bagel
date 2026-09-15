@@ -17,10 +17,15 @@ use crate::{
    },
    challenge::{
       ChallengeRuntime,
+      Redemption,
       RequestChallengeState,
       key::{
          bucket_expiry,
          derive_challenge_key,
+      },
+      pending::{
+         ChallengeBinding,
+         IssueError,
       },
       token::{
          cookie_name as challenge_cookie_name,
@@ -419,9 +424,49 @@ async fn evaluate_challenge_action(
          (Vec::new(), Vec::new())
       };
 
+      let issued_key = if reg.runtime.redemption() == Redemption::None {
+         challenge_key
+      } else {
+         let Some(address) = client_ip else {
+            return RuleOutcome::Handled(body::status(StatusCode::BAD_REQUEST));
+         };
+         let session = match eval.challenge_state.ensure_session(reg.duration) {
+            Ok(session) => session,
+            Err(error) => {
+               tracing::error!(%error, "failed to create challenge session");
+               return RuleOutcome::Handled(body::status(StatusCode::INTERNAL_SERVER_ERROR));
+            },
+         };
+         let binding = ChallengeBinding::new(
+            &session,
+            eval.host,
+            address,
+            challenge_name,
+            eval.user_agent.as_bytes(),
+            eval.state.policy.revision,
+         );
+         match eval.state.runtime.pending_challenges.issue(
+            &binding,
+            challenge_key,
+            level,
+            reg.duration,
+         ) {
+            Ok(key) => key,
+            Err(error) => {
+               let status = match error {
+                  IssueError::Limited => StatusCode::TOO_MANY_REQUESTS,
+                  IssueError::Full => StatusCode::SERVICE_UNAVAILABLE,
+                  IssueError::Random => StatusCode::INTERNAL_SERVER_ERROR,
+               };
+               tracing::warn!(%error, "challenge issuance refused");
+               return RuleOutcome::Handled(body::status(status));
+            },
+         }
+      };
+
       let mut ctx = ChallengeContext::new(
          challenge_name,
-         &challenge_key,
+         &issued_key,
          eval.host,
          client_ip,
          eval.request_uri,
@@ -474,9 +519,14 @@ async fn evaluate_challenge_action(
             }
          },
          IssueResult::Passed => {
-            eval
-               .challenge_state
-               .issue_challenge(challenge_name, &challenge_key, reg.duration);
+            if let Err(error) =
+               eval
+                  .challenge_state
+                  .issue_challenge(challenge_name, &challenge_key, reg.duration)
+            {
+               tracing::error!(%error, "failed to create challenge session");
+               return RuleOutcome::Handled(body::status(StatusCode::INTERNAL_SERVER_ERROR));
+            }
             bmetrics::record_challenge_passed(eval.host, challenge_name);
             tracing::debug!(
                rule = rule_name,

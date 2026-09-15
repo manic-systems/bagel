@@ -32,7 +32,10 @@ use crate::{
       Request,
    },
    cache::FileCache,
-   challenge::ChallengeRegistry,
+   challenge::{
+      ChallengeRegistry,
+      pending::PendingChallenges,
+   },
    config::{
       Config,
       CustomTheme,
@@ -106,27 +109,28 @@ pub struct Policy {
 
 /// Live machinery that survives reloads when its config is unchanged.
 pub struct Runtime {
-   pub backends:         BackendPool,
-   pub http_client:      Client<HttpConnector, Body>,
-   pub rhai_engine:      Engine,
+   pub backends:           BackendPool,
+   pub http_client:        Client<HttpConnector, Body>,
+   pub rhai_engine:        Engine,
    /// Shared across reloads unless the configured capacity changes.
-   pub rate_tracker:     Arc<RateTracker>,
+   pub rate_tracker:       Arc<RateTracker>,
+   pub pending_challenges: Arc<PendingChallenges>,
    /// Shared across reloads when its inputs are unchanged.
-   pub poison:           Arc<PoisonStore>,
+   pub poison:             Arc<PoisonStore>,
    /// Carried across reloads when the renderer config is unchanged.
-   pub renderers:        HashMap<String, Arc<ExternalRenderer>>,
+   pub renderers:          HashMap<String, Arc<ExternalRenderer>>,
    /// Carried across reloads when the crawler config is unchanged.
    #[cfg(feature = "fcrdns")]
-   pub crawler_verifier: Option<Arc<CrawlerVerifier>>,
+   pub crawler_verifier:   Option<Arc<CrawlerVerifier>>,
    /// Carried across reloads when the deception config is unchanged.
-   pub deceiver:         Arc<Deceiver>,
+   pub deceiver:           Arc<Deceiver>,
    /// Carried across reloads when max-concurrent is unchanged.
-   pub smear_slots:      Arc<Semaphore>,
-   pub theme:            Theme,
+   pub smear_slots:        Arc<Semaphore>,
+   pub theme:              Theme,
    /// Operator `challenge-template` overrides, cloned from config at load.
-   pub custom_theme:     CustomTheme,
-   pub file_cache:       Option<FileCache>,
-   pub tag_cache:        DecayMap<String, Vec<HtmlTag>>,
+   pub custom_theme:       CustomTheme,
+   pub file_cache:         Option<FileCache>,
+   pub tag_cache:          DecayMap<String, Vec<HtmlTag>>,
 }
 
 /// Key material, fixed for the life of the seed.
@@ -456,6 +460,10 @@ impl StateInner {
          .unwrap_or_else(|| Arc::new(RateTracker::new(rate_capacity)));
 
       let policy_revision = POLICY_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+      let pending_challenges = prev.map_or_else(
+         || Arc::new(PendingChallenges::default()),
+         |previous| Arc::clone(&previous.runtime.pending_challenges),
+      );
 
       let deceiver = prev
          .filter(|prev| prev.config.deception == config.deception)
@@ -575,6 +583,7 @@ impl StateInner {
             http_client,
             rhai_engine,
             rate_tracker,
+            pending_challenges,
             poison,
             renderers,
             #[cfg(feature = "fcrdns")]
