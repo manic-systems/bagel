@@ -1,24 +1,35 @@
-*
-!.cade
-!.editorconfig
-!.envrc
-!.gitignore
-!.rustfmt.toml
-!.taplo.toml
-!Cargo.lock
-!Cargo.toml
-!CHANGELOG.md
-!README.md
-!flake.lock
-!flake.nix
+# Ignore everything by default
+/*
+!/
 
-!contrib/
-!contrib/**
-!crates/
-!crates/**
-!docs/
-!docs/**
-!examples/
-!examples/**
-!nix/
-!nix/**
+# Sources
+!/crates/
+!/contrib/
+!/examples/
+
+
+# GitHub Actions
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
+
+# Configuration files
+!/.cade
+!/.editorconfig
+!/.envrc
+!/.gitignore
+!/.rustfmt.toml
+!/.taplo.toml
+!/Cargo.lock
+!/Cargo.toml
+
+# Nix
+!/flake.lock
+!/flake.nix
+!/nix/
+
+# Docs
+!/CHANGELOG.md
+!/README.md
+!/LICENSE
+!/docs
