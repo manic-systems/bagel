@@ -5,10 +5,23 @@ resolver = "3"
 [workspace.package]
 description  = "HTTP proxy and SSH tarpit daemon that delays malicious scanners"
 edition      = "2024"
+license      = "EUPL-v1.2"
 rust-version = "1.98.1"
 version      = "1.0.0"
 
 [workspace.dependencies]
+# Workspace components
+bagel-admin     = { path = "crates/bagel-admin", version = "1.0.0" }
+bagel-config    = { path = "crates/bagel-config", version = "1.0.0" }
+bagel-core      = { path = "crates/bagel-core", version = "1.0.0" }
+bagel-deception = { path = "crates/bagel-deception", version = "1.0.0" }
+bagel-proto     = { path = "crates/bagel-proto", version = "1.0.0" }
+bagel-runtime   = { path = "crates/bagel-runtime", version = "1.0.0" }
+bagel-solver    = { path = "crates/bagel-solver", version = "1.0.0" }
+bagel-traps     = { path = "crates/bagel-traps", version = "1.0.0" }
+bagel-web       = { path = "crates/bagel-web", version = "1.0.0" }
+
+# Other dependencies
 anyhow                      = "1.0.104"
 arc-swap                    = "1.9.2"
 bytes                       = "1.12.1"
@@ -59,17 +72,7 @@ tokio-util                  = { features = [ "rt" ], version = "0.7.19" }
 tower-service               = "0.3.3"
 tracing                     = "0.1.44"
 tracing-subscriber          = { default-features = false, features = [ "env-filter", "fmt", "smallvec", "std", "tracing-log" ], version = "0.3.23" }
-
-bagel-admin     = { path = "crates/bagel-admin" }
-bagel-config    = { path = "crates/bagel-config" }
-bagel-core      = { path = "crates/bagel-core" }
-bagel-deception = { path = "crates/bagel-deception" }
-bagel-proto     = { path = "crates/bagel-proto" }
-bagel-runtime   = { path = "crates/bagel-runtime" }
-bagel-solver    = { path = "crates/bagel-solver" }
-bagel-traps     = { path = "crates/bagel-traps" }
-bagel-web       = { path = "crates/bagel-web" }
-vela            = { package = "vela-wasm", version = "0.2.0" }
+vela                        = { package = "vela-wasm", version = "0.2.0" }
 
 [profile.release]
 codegen-units = 1
