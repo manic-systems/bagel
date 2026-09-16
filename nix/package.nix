@@ -4,17 +4,19 @@
   lib,
   rustPlatform,
   stdenv,
+  buildPackages,
+  pkgsBuildBuild,
   pkg-config,
   openssl,
   cacert,
   sqlite,
-  clang,
   lld,
   binaryen,
   wild ? null,
 }:
 let
   cargoTOML = (lib.importTOML ../Cargo.toml).workspace.package;
+  inherit (buildPackages) clang;
 
   # wild + clang are only used on Linux tier-1 arches
   hasWild =
@@ -62,7 +64,10 @@ rustPlatform.buildRustPackage (finalAttrs: {
     SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
   }
   // lib.optionalAttrs hasWild {
-    RUSTFLAGS = "-Clinker=${clang}/bin/clang -Clink-arg=--ld-path=wild";
+    RUSTFLAGS = "-Clinker=${clang}/bin/${stdenv.cc.targetPrefix}clang -Clink-arg=--ld-path=wild";
+  }
+  // lib.optionalAttrs (stdenv.buildPlatform != stdenv.hostPlatform) {
+    CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS = "--sysroot=${pkgsBuildBuild.rustc.unwrapped}";
   };
 
   enableParallelBuilding = true;
