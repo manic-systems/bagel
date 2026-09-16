@@ -1,0 +1,23 @@
+name: Build and Test with Cargo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@v1
+    with:
+      os: ${{ matrix.os }}
+      rust-toolchain: nightly
+      test: true
+      test-command: cargo test --locked --workspace --all-features
+      clippy: true
+      clippy-command: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      fmt: true
+      fmt-command: cargo fmt --all -- --check
