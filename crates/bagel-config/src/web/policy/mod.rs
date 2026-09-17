@@ -69,13 +69,12 @@ pub enum NetworkSource {
    Inline(Vec<String>),
 }
 
-/// Named condition expression (reusable via `($name)` substitution).
+/// One `prelude` node, a rhai script of `const` values and `fn` helpers that
+/// every condition can use. Preludes from all policy files share one scope.
 #[derive(Clone, knead_derive::Decode)]
-pub struct ConditionConfig {
+pub struct PreludeConfig {
    #[knead(argument)]
-   pub name: String,
-   #[knead(property)]
-   pub expr: RhaiExpression,
+   pub script: RhaiExpression,
 }
 
 #[derive(Clone)]
@@ -246,7 +245,7 @@ pub fn parse_duration(text: &str) -> Option<Duration> {
 #[derive(Clone, Default)]
 pub struct PolicyConfig {
    pub networks:   Vec<NetworkConfig>,
-   pub conditions: Vec<ConditionConfig>,
+   pub prelude:    Vec<PreludeConfig>,
    pub challenges: Vec<ChallengeConfig>,
    pub rules:      Vec<RuleConfig>,
    pub scoring:    Option<ScoringConfig>,
@@ -256,11 +255,11 @@ pub struct PolicyConfig {
 }
 
 impl PolicyConfig {
-   /// Merge another policy into this one (appending networks, conditions,
+   /// Merge another policy into this one (appending networks, preludes,
    /// challenges, and rules). Used for `--policy-dir` snippet loading.
    pub fn merge(&mut self, other: Self) {
       self.networks.extend(other.networks);
-      self.conditions.extend(other.conditions);
+      self.prelude.extend(other.prelude);
       self.challenges.extend(other.challenges);
       self.rules.extend(other.rules);
       self.mazes.extend(other.mazes);
@@ -360,11 +359,9 @@ impl PolicyConfig {
                .map(|network| network.into_config(offset))
                .collect::<Result<_>>()?;
          },
-         "conditions" => {
-            let input: ConditionsInput = crate::decode::node(node)?;
-            policy.conditions = unique(offset, "condition", input.conditions, |condition| {
-               &condition.name
-            })?;
+         "prelude" => {
+            let input: PreludeConfig = crate::decode::node(node)?;
+            policy.prelude.push(input);
          },
          "challenges" => {
             let input: ChallengesInput = crate::decode::node(node)?;
@@ -540,12 +537,6 @@ fn convert_network_filter(
          ))
       },
    }
-}
-
-#[derive(knead_derive::Decode)]
-struct ConditionsInput {
-   #[knead(children(name = "condition"))]
-   conditions: Vec<ConditionConfig>,
 }
 
 /// A rhai condition expression. An explicit type annotation on the value may

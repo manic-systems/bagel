@@ -1,5 +1,8 @@
 use std::{
-   collections::HashMap,
+   collections::{
+      HashMap,
+      HashSet,
+   },
    net::{
       IpAddr,
       SocketAddr,
@@ -12,9 +15,20 @@ use http::{
    Version,
 };
 use rhai::{
+   AST,
+   ASTFlags,
+   ASTNode,
+   Array,
    Dynamic,
    Engine,
+   EvalAltResult,
+   Expr,
+   FnCallExpr,
+   ImmutableString,
+   Module,
+   Position,
    Scope,
+   Stmt,
    packages::{
       ArithmeticPackage,
       BasicArrayPackage,
@@ -30,6 +44,7 @@ use rhai::{
 use crate::{
    body::Body,
    claim::Claim,
+   config::policy::PreludeConfig,
    fingerprint::Capture,
    http2::Http2Fingerprint,
    net::{
@@ -61,7 +76,65 @@ pub fn build_engine() -> Engine {
    engine.set_max_operations(10_000);
    engine.set_max_string_size(4096);
 
+   engine.register_fn("starts_with_any", |text: &str, items: Array| {
+      any_item(&items, |item| text.starts_with(item))
+   });
+   engine.register_fn("ends_with_any", |text: &str, items: Array| {
+      any_item(&items, |item| text.ends_with(item))
+   });
+   engine.register_fn("contains_any", |text: &str, items: Array| {
+      any_item(&items, |item| text.contains(item))
+   });
+   engine.register_fn("param", query_param);
+
    engine
+}
+
+fn any_item(items: &Array, matches: impl Fn(&str) -> bool) -> Result<bool, Box<EvalAltResult>> {
+   for item in items {
+      let Some(text) = item.read_lock::<ImmutableString>() else {
+         return Err(Box::new(EvalAltResult::ErrorMismatchDataType(
+            "string".to_owned(),
+            item.type_name().to_owned(),
+            Position::NONE,
+         )));
+      };
+      if matches(&text) {
+         return Ok(true);
+      }
+   }
+   Ok(false)
+}
+
+/// First value of `name` in a query string, form-decoded, or empty when the
+/// parameter is absent or has no value.
+fn query_param(query: &str, name: &str) -> ImmutableString {
+   query
+      .split('&')
+      .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
+      .find(|(key, _)| form_decode(key) == name)
+      .map_or_else(ImmutableString::new, |(_, value)| form_decode(value).into())
+}
+
+fn form_decode(text: &str) -> String {
+   let bytes = text.as_bytes();
+   let mut out = Vec::with_capacity(bytes.len());
+   let mut at = 0;
+   while at < bytes.len() {
+      let hex = bytes
+         .get(at + 1..at + 3)
+         .filter(|_| bytes[at] == b'%')
+         .and_then(|pair| str::from_utf8(pair).ok())
+         .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+      if let Some(byte) = hex {
+         out.push(byte);
+         at += 3;
+      } else {
+         out.push(if bytes[at] == b'+' { b' ' } else { bytes[at] });
+         at += 1;
+      }
+   }
+   String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Variables available during condition evaluation.
@@ -150,97 +223,63 @@ impl ConditionContext {
          .collect();
       scope.push_constant("networks", net_map);
 
-      let (rate_second, rate_ten_seconds, rate_minute) = self.rate.map_or((0, 0, 0), |snap| {
-         (
-            i64::from(snap.last_1),
-            i64::from(snap.last_10),
-            i64::from(snap.last_60),
-         )
-      });
+      let rate = self.rate;
       let mut rate_map = rhai::Map::new();
-      rate_map.insert("available".into(), Dynamic::from(self.rate.is_some()));
-      rate_map.insert("1s".into(), Dynamic::from(rate_second));
-      rate_map.insert("10s".into(), Dynamic::from(rate_ten_seconds));
-      rate_map.insert("60s".into(), Dynamic::from(rate_minute));
+      rate_map.insert("available".into(), Dynamic::from(rate.is_some()));
+      rate_map.insert("1s".into(), count(rate.map(|snap| snap.last_1)));
+      rate_map.insert("10s".into(), count(rate.map(|snap| snap.last_10)));
+      rate_map.insert("60s".into(), count(rate.map(|snap| snap.last_60)));
       scope.push_constant("rate", rate_map);
 
+      let claim = self.claim;
       let mut claim_map = rhai::Map::new();
-      claim_map.insert("browser".into(), Dynamic::from(self.claim.is_some()));
+      claim_map.insert("browser".into(), Dynamic::from(claim.is_some()));
       claim_map.insert(
          "family".into(),
-         Dynamic::from(
-            self
-               .claim
-               .map_or_else(String::new, |claim| claim.family.to_string()),
-         ),
+         text(claim.map(|claim| claim.family.to_string())),
       );
-      claim_map.insert(
-         "major".into(),
-         Dynamic::from(self.claim.map_or(0_i64, |claim| i64::from(claim.major))),
-      );
+      claim_map.insert("major".into(), count(claim.map(|claim| claim.major)));
       claim_map.insert(
          "platform".into(),
-         Dynamic::from(
-            self
-               .claim
-               .map_or_else(String::new, |claim| claim.platform.to_string()),
-         ),
+         text(claim.map(|claim| claim.platform.to_string())),
       );
       claim_map.insert(
          "mobile".into(),
-         Dynamic::from(self.claim.is_some_and(|claim| claim.mobile)),
+         Dynamic::from(claim.is_some_and(|claim| claim.mobile)),
       );
       claim_map.insert(
          "stack".into(),
-         Dynamic::from(self.claim.map_or("", |claim| claim.stack()).to_owned()),
+         text(claim.map(|claim| claim.stack().to_owned())),
       );
       scope.push_constant("claim", claim_map);
 
+      let census = self.census;
+      let probe_census = self.probe_census;
       let mut census_map = rhai::Map::new();
-      census_map.insert("available".into(), Dynamic::from(self.census.is_some()));
+      census_map.insert("available".into(), Dynamic::from(census.is_some()));
       census_map.insert(
          "claim_networks".into(),
-         Dynamic::from(
-            self
-               .census
-               .map_or(0_i64, |snap| i64::from(snap.claim_networks)),
-         ),
+         count(census.map(|snap| snap.claim_networks)),
       );
       census_map.insert(
          "pair_networks".into(),
-         Dynamic::from(
-            self
-               .census
-               .map_or(0_i64, |snap| i64::from(snap.pair_networks)),
-         ),
+         count(census.map(|snap| snap.pair_networks)),
       );
       census_map.insert(
          "pair_permille".into(),
-         Dynamic::from(
-            self
-               .census
-               .map_or(0_i64, |snap| i64::from(snap.pair_permille())),
-         ),
+         count(census.map(|snap| snap.pair_permille())),
       );
       census_map.insert(
          "probe_available".into(),
-         Dynamic::from(self.probe_census.is_some()),
+         Dynamic::from(probe_census.is_some()),
       );
       census_map.insert(
          "probe_networks".into(),
-         Dynamic::from(
-            self
-               .probe_census
-               .map_or(0_i64, |snap| i64::from(snap.pair_networks)),
-         ),
+         count(probe_census.map(|snap| snap.pair_networks)),
       );
       census_map.insert(
          "probe_permille".into(),
-         Dynamic::from(
-            self
-               .probe_census
-               .map_or(0_i64, |snap| i64::from(snap.pair_permille())),
-         ),
+         count(probe_census.map(|snap| snap.pair_permille())),
       );
       scope.push_constant("census", census_map);
 
@@ -248,44 +287,35 @@ impl ConditionContext {
       probe_map.insert("available".into(), Dynamic::from(self.probe.is_some()));
       probe_map.insert(
          "profile".into(),
-         Dynamic::from(
-            self
-               .probe
-               .map_or_else(String::new, |probe| format!("{probe:016x}")),
-         ),
+         text(self.probe.map(|probe| format!("{probe:016x}"))),
       );
       scope.push_constant("probe", probe_map);
 
       let mut pow_map = rhai::Map::new();
       pow_map.insert("available".into(), Dynamic::from(self.pow_level.is_some()));
-      pow_map.insert(
-         "level".into(),
-         Dynamic::from(self.pow_level.map_or(0_i64, i64::from)),
-      );
+      pow_map.insert("level".into(), count(self.pow_level));
       scope.push_constant("pow", pow_map);
 
+      let solves = self.solves;
       let mut solves_map = rhai::Map::new();
-      solves_map.insert("available".into(), Dynamic::from(self.solves.is_some()));
-      solves_map.insert(
-         "10m".into(),
-         Dynamic::from(self.solves.map_or(0_i64, |snap| i64::from(snap.last_10))),
-      );
-      solves_map.insert(
-         "60m".into(),
-         Dynamic::from(self.solves.map_or(0_i64, |snap| i64::from(snap.last_60))),
-      );
+      solves_map.insert("available".into(), Dynamic::from(solves.is_some()));
+      solves_map.insert("10m".into(), count(solves.map(|snap| snap.last_10)));
+      solves_map.insert("60m".into(), count(solves.map(|snap| snap.last_60)));
       scope.push_constant("solves", solves_map);
 
-      let visit = self.visit.unwrap_or_default();
+      let visit = self.visit;
       let mut visit_map = rhai::Map::new();
-      visit_map.insert("available".into(), Dynamic::from(self.visit.is_some()));
-      visit_map.insert("rendered".into(), Dynamic::from(visit.rendered));
-      visit_map.insert("greedy".into(), Dynamic::from(visit.greedy));
+      visit_map.insert("available".into(), Dynamic::from(visit.is_some()));
       visit_map.insert(
-         "documents".into(),
-         Dynamic::from(i64::from(visit.documents)),
+         "rendered".into(),
+         Dynamic::from(visit.is_some_and(|snap| snap.rendered)),
       );
-      visit_map.insert("assets".into(), Dynamic::from(i64::from(visit.assets)));
+      visit_map.insert(
+         "greedy".into(),
+         Dynamic::from(visit.is_some_and(|snap| snap.greedy)),
+      );
+      visit_map.insert("documents".into(), count(visit.map(|snap| snap.documents)));
+      visit_map.insert("assets".into(), count(visit.map(|snap| snap.assets)));
       scope.push_constant("visit", visit_map);
 
       let mut poison_map = rhai::Map::new();
@@ -307,10 +337,7 @@ impl ConditionContext {
       for reason in ["path", "user_agent", "impersonator"] {
          trap_map.insert(reason.into(), Dynamic::from(trap.reason == Some(reason)));
       }
-      trap_map.insert(
-         "category".into(),
-         Dynamic::from(trap.category.unwrap_or("").to_owned()),
-      );
+      trap_map.insert("category".into(), text(trap.category.map(str::to_owned)));
       scope.push_constant("trap", trap_map);
 
       scope
@@ -426,23 +453,197 @@ impl ConditionContext {
    }
 }
 
-/// Expand `($name)` references in a condition expression with the named
-/// condition's expression.
-#[must_use]
-#[expect(
-   clippy::iter_over_hash_type,
-   reason = "macro expansion does not depend on map iteration order"
-)]
-pub fn expand_condition_macros<S: std::hash::BuildHasher>(
-   expr: &str,
-   conditions: &HashMap<String, String, S>,
-) -> String {
-   let mut result = expr.to_owned();
-   for (name, replacement) in conditions {
-      let pattern = format!("(${name})");
-      if result.contains(&pattern) {
-         result = result.replace(&pattern, &format!("({replacement})"));
+/// Request bindings every condition may name. Anything else left unresolved
+/// after constant folding is a typo, caught at load rather than on the first
+/// request.
+const BINDINGS: [&str; 21] = [
+   "host",
+   "method",
+   "path",
+   "query",
+   "user_agent",
+   "remote_address",
+   "http_version",
+   "headers",
+   "fp",
+   "networks",
+   "rate",
+   "claim",
+   "census",
+   "probe",
+   "pow",
+   "solves",
+   "visit",
+   "poison",
+   "lease",
+   "crawler",
+   "trap",
+];
+
+/// Functions the engine handles as keywords, so they are absent from its
+/// registered signatures.
+const KEYWORD_FUNCTIONS: [&str; 10] = [
+   "Fn",
+   "call",
+   "curry",
+   "type_of",
+   "is_def_fn",
+   "is_def_var",
+   "is_shared",
+   "eval",
+   "print",
+   "debug",
+];
+
+/// The policy's rhai prelude, `const` values and `fn` helpers.
+///
+/// Constants fold into each condition at compile time and are also registered
+/// as engine globals for the uses rhai cannot fold.
+pub struct Prelude {
+   constants:      Scope<'static>,
+   constant_names: HashSet<String>,
+   functions:      HashSet<(String, usize)>,
+   lib:            AST,
+}
+
+impl Prelude {
+   pub fn new(engine: &mut Engine, sources: &[PreludeConfig]) -> Result<Self, String> {
+      let script = sources
+         .iter()
+         .map(|source| source.script.as_ref())
+         .collect::<Vec<_>>()
+         .join("\n");
+      let prefix = |err: &dyn std::fmt::Display| format!("prelude: {err}");
+
+      let mut constants = Scope::new();
+      let first = engine.compile(&script).map_err(|err| prefix(&err))?;
+      engine
+         .run_ast_with_scope(&mut constants, &first)
+         .map_err(|err| prefix(&err))?;
+
+      let mut constant_names = HashSet::new();
+      for statement in first.statements() {
+         let Stmt::Var(declaration, flags, position) = statement else {
+            continue;
+         };
+         let name = declaration.0.name.as_str();
+         if !flags.contains(ASTFlags::CONSTANT) {
+            return Err(format!(
+               "prelude: '{name}' is a variable at {position}, the top level may only declare \
+                const and fn"
+            ));
+         }
+         if !constant_names.insert(name.to_owned()) {
+            return Err(format!(
+               "prelude: duplicate constant '{name}' at {position}"
+            ));
+         }
+      }
+
+      let mut globals = Module::new();
+      for (name, _, value) in constants.iter() {
+         globals.set_var(name, value);
+      }
+      engine.register_global_module(globals.into());
+
+      let lib = engine
+         .compile_with_scope(&constants, &script)
+         .map_err(|err| prefix(&err))?
+         .clone_functions_only();
+      let mut functions: HashSet<(String, usize)> = engine
+         .gen_fn_signatures(true)
+         .iter()
+         .filter_map(|signature| signature_arity(signature))
+         .collect();
+      functions.extend(
+         lib.iter_functions()
+            .map(|function| (function.name.to_owned(), function.params.len())),
+      );
+
+      let prelude = Self {
+         constants,
+         constant_names,
+         functions,
+         lib,
+      };
+      prelude.check(&prelude.lib).map_err(|err| prefix(&err))?;
+      Ok(prelude)
+   }
+
+   pub fn compile(&self, engine: &Engine, expr: &str) -> Result<AST, String> {
+      let ast = engine
+         .compile_expression_with_scope(&self.constants, expr)
+         .map_err(|err| format!("condition compile error: {err}"))?
+         .merge(&self.lib);
+      self.check(&ast)?;
+      Ok(ast)
+   }
+
+   fn check(&self, ast: &AST) -> Result<(), String> {
+      let mut problem = None;
+      ast.walk(&mut |path| {
+         let (found, position) = match path.last() {
+            Some(ASTNode::Expr(Expr::Variable(access, _, position))) if access.0.is_none() => {
+               let name = access.1.as_str();
+               let known = BINDINGS.contains(&name) || self.constant_names.contains(name);
+               (
+                  (!known).then(|| format!("unknown variable '{name}'")),
+                  *position,
+               )
+            },
+            Some(
+               ASTNode::Expr(Expr::FnCall(call, position))
+               | ASTNode::Stmt(Stmt::FnCall(call, position)),
+            ) => (self.unknown_call(call, call.args.len()), *position),
+            Some(ASTNode::Expr(Expr::MethodCall(call, position))) => {
+               (self.unknown_call(call, call.args.len() + 1), *position)
+            },
+            _ => (None, Position::NONE),
+         };
+         let Some(message) = found else {
+            return true;
+         };
+         problem = Some(format!("{message} at {position}"));
+         false
+      });
+      problem.map_or(Ok(()), Err)
+   }
+
+   fn unknown_call(&self, call: &FnCallExpr, arity: usize) -> Option<String> {
+      let known = call.op_token.is_some()
+         || call.name.contains('$')
+         || KEYWORD_FUNCTIONS.contains(&call.name.as_str())
+         || self.functions.contains(&(call.name.to_string(), arity));
+      (!known).then(|| format!("unknown function '{}' taking {arity} arguments", call.name))
+   }
+}
+
+/// Name and parameter count of one `Engine::gen_fn_signatures` entry, such
+/// as `starts_with(string: string, match_string: string) -> bool`.
+fn signature_arity(signature: &str) -> Option<(String, usize)> {
+   let (name, rest) = signature.split_once('(')?;
+   let mut depth = 0_usize;
+   let mut params = 0_usize;
+   let mut seen_param = false;
+   for ch in rest.chars() {
+      match ch {
+         '(' | '<' | '[' => depth += 1,
+         ')' | '>' | ']' if depth > 0 => depth -= 1,
+         ')' => break,
+         ',' if depth == 0 => params += 1,
+         _ if !ch.is_whitespace() => seen_param = true,
+         _ => {},
       }
    }
-   result
+   Some((name.to_owned(), params + usize::from(seen_param)))
+}
+
+/// A count that is `()` when its source is absent, so any comparison against
+/// it is false and conditions need no availability guard.
+fn count(value: Option<impl Into<i64>>) -> Dynamic {
+   value.map_or(Dynamic::UNIT, |value| Dynamic::from(value.into()))
+}
+
+fn text(value: Option<String>) -> Dynamic {
+   value.map_or(Dynamic::UNIT, Dynamic::from)
 }

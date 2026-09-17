@@ -44,7 +44,7 @@ pound                       = "0.1.7"
 ppp                         = "2.3.0"
 rand                        = "0.10.2"
 regex                       = { default-features = false, features = [ "perf", "std", "unicode-case", "unicode-perl" ], version = "1.13.1" }
-rhai                        = { features = [ "sync", "only_i64", "no_float", "no_custom_syntax", "no_time", "no_module" ], version = "1.26.1" }
+rhai                        = { features = [ "sync", "only_i64", "no_float", "no_custom_syntax", "no_time", "no_module", "internals", "metadata" ], version = "1.26.1" }
 ring                        = "0.17.14"
 rusqlite                    = "0.40.2"
 rustls                      = { default-features = false, features = [ "ring", "logging", "std", "tls12" ], version = "0.23.44" }

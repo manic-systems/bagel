@@ -112,6 +112,60 @@ The rest are maps.
 `networks` is only populated when a client IP resolves, so a condition indexing
 a network name finds no entry rather than false when the address is missing.
 
+Counts and names whose source is absent bind as `()`, and every comparison
+against `()` is false except `!=`, which is true. So `rate["10s"] > 120` and
+`pow["level"] < 26` are false without a rate snapshot or token and need no
+`available` guard, while an inequality still wants a presence check, as in
+`"edge_family" in fp && fp["edge_family"] != claim["stack"]`. Flags such as
+`visit["rendered"]` stay false when absent, and the `available` keys remain for
+conditions that ask whether a source exists at all.
+
+## Prelude and helpers
+
+`prelude` holds a rhai script of `const` values and `fn` helpers that every
+condition can use. Constants are any rhai value and fold into each condition
+at compile time, so they cost nothing per request. Functions are the macros,
+called with the bindings they need, since a rhai function cannot see the
+request scope on its own. Every policy file may carry one `prelude` and they
+share a scope, so common.kdl can hold the shared constants. The top level may
+only declare `const` and `fn`, and a duplicate name is a load error.
+
+```kdl
+prelude (rhai)#"""
+   const TOOL_AGENTS = ["curl/", "Wget/", "python-requests/", "Go-http-client/"];
+   const FLOOD = #{ burst: 120, sustained: 600 };
+
+   fn teapot(host) { host in ["goyimx.com"] }
+   fn tool(ua) { ua.starts_with_any(TOOL_AGENTS) }
+"""#
+
+rules {
+   rule "flood" condition=(rhai)#"teapot(host) && rate["10s"] > FLOOD.burst"# action="deny" http-code=429
+}
+
+scoring {
+   scorecard "teapot" condition=(rhai)#"teapot(host)"# {
+      signal "tool" weight=40 condition=(rhai)#"tool(user_agent)"#
+   }
+}
+```
+
+Every condition and prelude function is checked at load. A name that is
+neither a request binding, a constant, a local nor a known function fails
+config validation with its position, instead of erroring on the first request
+that reaches it.
+
+Four string methods cover the common shapes. `starts_with_any`,
+`ends_with_any` and `contains_any` take any array of strings, and
+`query.param("q")` returns the form-decoded first value of a query parameter,
+or an empty string when it is absent.
+
+```rhai
+user_agent.to_lower().contains_any(AI_CRAWLERS)
+path.ends_with_any(["/retweets", "/quotes", "/history"])
+query.param("cursor") != ""
+```
+
 `fp` always includes `source`, `tls_status`, `proxied_status`, `edge_status` and
 `http2_status` as strings. `source` is `none` or the available sources joined
 with `+`, using `native`, `proxy` and `cloudflare`. Each status is one of
@@ -330,7 +384,7 @@ signal "stack-mismatch" weight=40 condition=(rhai)#"""
    claim["browser"] && "edge_family" in fp && fp["edge_family"] != claim["stack"]
    """#
 signal "rare-pairing" weight=40 condition=(rhai)#"""
-   census["available"] && census["claim_networks"] >= 200 && census["pair_permille"] < 20
+   census["claim_networks"] >= 200 && census["pair_permille"] < 20
    """#
 ```
 
@@ -368,7 +422,7 @@ network that solves the base level many times an hour is a farm on the cheap
 path.
 
 ```kdl
-signal "cpu-path" weight=20 condition=(rhai)#"pow["available"] && pow["level"] < 26"#
+signal "cpu-path" weight=20 condition=(rhai)#"pow["level"] < 26"#
 ```
 
 ## Visit shape and render beacons
@@ -401,7 +455,7 @@ a threshold action.
 
 ```kdl
 signal "unrendered" weight=40 condition=(rhai)#"""
-   visit["available"] && !visit["rendered"] && visit["documents"] >= 3
+   !visit["rendered"] && visit["documents"] >= 3
    """#
 signal "greedy" weight=40 condition=(rhai)#"visit["greedy"]"#
 ```
@@ -448,7 +502,7 @@ policy {
 
     scoring rate-capacity=65536 {
         scorecard "default" mode="observe" {
-            signal "rate-spike" condition=#"rate["available"] && rate["10s"] > 120"# weight=40
+            signal "rate-spike" condition=#"rate["10s"] > 120"# weight=40
             signal "known-network" condition=#"networks["hosting"]"# weight=25
             signal "poison-return" condition=#"poison["returned"]"# weight=100
 

@@ -1,7 +1,4 @@
-use std::collections::{
-   HashMap,
-   HashSet,
-};
+use std::collections::HashSet;
 
 use rhai::{
    AST,
@@ -11,7 +8,7 @@ use rhai::{
 
 use super::{
    action::Action,
-   condition::expand_condition_macros,
+   condition::Prelude,
 };
 use crate::{
    config::policy::ScoringConfig,
@@ -85,7 +82,7 @@ impl ScoringState {
    pub fn build(
       config: &ScoringConfig,
       engine: &Engine,
-      named_conditions: &HashMap<String, String>,
+      prelude: &Prelude,
       default_http_code: u16,
    ) -> Result<Self> {
       let rate_capacity = config.rate_capacity.unwrap_or(rate::DEFAULT_CAPACITY);
@@ -129,7 +126,7 @@ impl ScoringState {
          let condition = card
             .condition
             .as_ref()
-            .map(|expr| compile(engine, named_conditions, expr.as_ref()))
+            .map(|expr| prelude.compile(engine, expr.as_ref()))
             .transpose()
             .map_err(|err| Error::Config(format!("scorecard '{}': {err}", card.name)))?;
          if condition.is_none() {
@@ -151,8 +148,9 @@ impl ScoringState {
                   card.name, signal.name
                )));
             }
-            let compiled =
-               compile(engine, named_conditions, signal.condition.as_ref()).map_err(|err| {
+            let compiled = prelude
+               .compile(engine, signal.condition.as_ref())
+               .map_err(|err| {
                   Error::Config(format!(
                      "scorecard '{}': signal '{}': {err}",
                      card.name, signal.name
@@ -298,15 +296,4 @@ fn action_kind(action: &str) -> &'static str {
       "smear" => "smear",
       _ => "unknown",
    }
-}
-
-fn compile(
-   engine: &Engine,
-   named_conditions: &HashMap<String, String>,
-   expr: &str,
-) -> std::result::Result<AST, String> {
-   let expanded = expand_condition_macros(expr, named_conditions);
-   engine
-      .compile_expression(&expanded)
-      .map_err(|err| format!("condition compile error: {err}"))
 }

@@ -67,7 +67,10 @@ use crate::{
    rule::{
       RuleState,
       action::Action,
-      condition,
+      condition::{
+         self,
+         Prelude,
+      },
       scoring::ScoringState,
    },
    solver_delivery,
@@ -183,17 +186,13 @@ struct Compiled {
 
 fn compile(config: &Config, seed_persistent: bool) -> error::Result<Compiled> {
    validate_bind(&config.bind)?;
-   let rhai_engine = condition::build_engine();
-   let named_conditions: HashMap<String, String> = config
-      .policy
-      .conditions
-      .iter()
-      .map(|cond| (cond.name.clone(), cond.expr.as_ref().to_owned()))
-      .collect();
+   let mut rhai_engine = condition::build_engine();
+   let prelude =
+      Prelude::new(&mut rhai_engine, &config.policy.prelude).map_err(error::Error::Config)?;
    let rules = RuleState::build_rules(
       &config.policy.rules,
       &rhai_engine,
-      &named_conditions,
+      &prelude,
       config.challenge_http_code,
       "",
    )?;
@@ -207,7 +206,7 @@ fn compile(config: &Config, seed_persistent: bool) -> error::Result<Compiled> {
          ScoringState::build(
             scoring_config,
             &rhai_engine,
-            &named_conditions,
+            &prelude,
             config.challenge_http_code,
          )
       })

@@ -2,9 +2,8 @@ pub mod action;
 pub mod condition;
 pub mod scoring;
 
-use std::collections::HashMap;
-
 use action::Action;
+use condition::Prelude;
 use rhai::{
    AST,
    Engine,
@@ -58,7 +57,7 @@ impl RuleState {
    pub fn build_rules(
       configs: &[RuleConfig],
       engine: &Engine,
-      named_conditions: &HashMap<String, String>,
+      prelude: &Prelude,
       default_http_code: u16,
       parent_name: &str,
    ) -> error::Result<Vec<Self>> {
@@ -71,25 +70,12 @@ impl RuleState {
             format!("{}/{}", parent_name, cfg.name)
          };
 
-         let condition = if let Some(ref expr) = cfg.condition {
-            let expanded = condition::expand_condition_macros(expr.as_ref(), named_conditions);
-            match engine.compile_expression(&expanded) {
-               Ok(ast) => Some(ast),
-               Err(err) => {
-                  tracing::error!(
-                      rule = full_name,
-                      expr = expanded,
-                      error = %err,
-                      "failed to compile rule condition"
-                  );
-                  return Err(error::Error::Config(format!(
-                     "rule '{full_name}' condition compile error: {err}"
-                  )));
-               },
-            }
-         } else {
-            None
-         };
+         let condition = cfg
+            .condition
+            .as_ref()
+            .map(|expr| prelude.compile(engine, expr.as_ref()))
+            .transpose()
+            .map_err(|err| error::Error::Config(format!("rule '{full_name}': {err}")))?;
 
          let action = Action::parse(
             &cfg.action,
@@ -102,7 +88,7 @@ impl RuleState {
          let children = Self::build_rules(
             &cfg.children,
             engine,
-            named_conditions,
+            prelude,
             default_http_code,
             &full_name,
          )?;

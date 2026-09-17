@@ -11,7 +11,7 @@ async fn first_matching_scorecard_wins() {
 
 #[tokio::test]
 async fn signal_errors_contribute_zero() {
-   let shared = scoring_shared(r#"scoring { scorecard "default" mode="enforce" { signal "works" condition="true" weight=55; signal "broken" condition="undefined_variable > 1" weight=100; threshold 50 action="deny"; threshold 100 action="deny" http-code=451 } }"#).await;
+   let shared = scoring_shared(r#"scoring { scorecard "default" mode="enforce" { signal "works" condition="true" weight=55; signal "broken" condition="path.nope > 1" weight=100; threshold 50 action="deny"; threshold 100 action="deny" http-code=451 } }"#).await;
    let (status, _) = send(&shared, "/").await;
    assert_eq!(status, StatusCode::FORBIDDEN);
 }
