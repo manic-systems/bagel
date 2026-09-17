@@ -31,160 +31,95 @@ one that only watches.
 
 ## Configuration
 
-One KDL file configures both planes. The web nodes sit at the top level and the
-defense plane lives under `defense { }`, so a small deployment fits on one
-screen, see `examples/bagel.kdl`. `bagel config example` prints a starting
-point, `bagel-daemon --config bagel.kdl` starts the daemon, and adding
-`--check-config` validates the file without starting anything. The policy
-surface itself, meaning rules, scoring, condition bindings, mazes and
-renderers, is described in [docs/policy.md](docs/policy.md), and the key and
-token design underneath mazes in [docs/maze.md](docs/maze.md).
+One KDL file configures both planes, web nodes at the top level and the defense
+plane under `defense { }`, see `examples/bagel.kdl`. `bagel config example`
+prints a starting point, `bagel-daemon --config bagel.kdl` starts the daemon
+and `--check-config` validates the file without starting anything. Rules,
+scoring, the prelude, condition bindings, mazes and renderers are described in
+[docs/policy.md](docs/policy.md), and the key and token design under mazes in
+[docs/maze.md](docs/maze.md).
 
-Every section is typed, so an unknown field, an extra argument, a repeated
-singleton child or a wrongly typed scalar is a load error rather than something
-quietly ignored. Web rules keep their ordered child overrides while defense
-singleton children reject duplicates, and `policy-dir` merges KDL snippets in
-filename order with the same strictness, so an unreadable directory, a
-malformed snippet or an unknown policy entry stops loading. Backend header
-names and values are validated before a single request is served.
-
-Durations are written `"60s"`, `"30m"`, `"24h"` or `"7d"`. Network filters are
-`filter="jq" jq=".."` or `filter="regex" regex=".."`, and a named condition is
-`condition "name" expr=".."`. Rhai goes in a KDL raw string,
-`condition=#"path == "/x""#`, or in the multi-line `#"""` form with one `||`
-per line, which the parser dedents to the closing line. The optional `(rhai)`
-annotation says what the payload is and rejects misspellings.
+Every section is typed, so an unknown field, a repeated singleton, a wrongly
+typed scalar or a bad snippet in `policy-dir` is a load error. Every rhai
+condition is checked at load too, so a typo fails validation instead of the
+first request. Rhai goes in a KDL raw string, `condition=#"path == "/x""#`, or
+the multi-line `#"""` form, and the optional `(rhai)` annotation rejects
+misspellings.
 
 Mazes need a persistent key. Generate it once with `bagel-daemon
---generate-key`, then supply it through `--key-seed-file`, or
-`services.bagel.keySeedFile` on NixOS. Keep the file private and keep it across
-restarts, because rotating it invalidates every outstanding maze URL and
-challenge cookie.
+--generate-key`, then supply it through `--key-seed-file` or
+`services.bagel.keySeedFile` on NixOS. Rotating it invalidates every
+outstanding maze URL and challenge cookie.
 
 Two rule features tie the planes together. `action="report" kind="tarball"`
-emits a web offense whose `/kind` is the configured label and then continues to
-the next rule, so a defense policy with a `json` detector on
-`equals "/kind" "tarball"` can count those per address inside its
-`findtime-secs` and put the client on the escalation ladder, and
-`group-key-pointer="/group_key"` keeps a separate window for each repository a
-rule reports. In the other direction, `lease["active"]` is true while the
-client address holds an active non-observe lease, so a rule placed first can
-`deny` or `tarpit` it at the web layer. That's what makes the ladder useful
-behind a CDN, where a kernel drop never reaches the client.
+emits a web offense the defense plane can count per address and escalate, and
+`lease["active"]` is true while the client holds an active lease, so a rule
+placed first can `deny` or `tarpit` it at the web layer. That's what makes the
+ladder useful behind a CDN, where a kernel drop never reaches the client.
 
-A `check` rule proves a client without an interstitial, by splicing the
-challenge into the proxied page instead of replacing it. `embed="hidden"`, the
-default, delivers only the solver, and `embed="card"` also draws the usual
-card. An embedded card ships inside a shadow root carrying its own stylesheet,
-so neither the origin's CSS nor bagel's can reach the other, and every custom
-property is prefixed because those do inherit across the boundary. bagel
-appends the widget to the end of the response, so an origin that wants to place
-it somewhere specific can put an empty `<div id="bagel-challenge">` in its own
-markup and the widget moves there. Either way the page stays usable while the
-proof runs and settles in place rather than reloading. The stylesheet is also
-served on its own at `/__bagel/static/widget.css`.
+## Challenges
 
-The proof itself runs in a wasm module built from the `bagel-solver` crate,
-served at `/__bagel/static/solver.wasm` and driven by a short shim at
-`/__bagel/static/runtime.mjs`. The shim starts a dedicated Web Worker at
-`/__bagel/static/worker.mjs`, keeping wasm compilation and nonce searches off
-the main thread while the page handles progress and proof submission. Every
-asset URL carries a `?v=` digest of the whole set, so a new build never runs a
-cached worker against a fresh module. Workers stop when the proof is ready,
-the check fails, or the page is left. The page
-carries only an opaque handoff blob and the verify URL, and the module
-unpacks the key and difficulty, searches nonces, and seals the solution it
-posts back, so nothing readable on the wire
-describes the scheme. Building bagel builds the module too, which needs `lld`
-for the `wasm32v1-none` target and shrinks it with `wasm-opt` when binaryen is
-available. `BAGEL_SOLVER_WASM` substitutes a prebuilt module instead. An origin
-whose Content-Security-Policy blocks the runtime script or the same-origin
-worker can't run the embedded `check` widget, and those clients meet the
-blocking wall on the next gated request instead. Wasm compilation runs under
-the worker response's policy rather than the origin document's policy.
+A `challenge` rule replaces the page with an interstitial. A `check` rule
+splices the solver into the proxied page instead, so the page stays usable
+while the proof runs. `embed="hidden"`, the default, delivers only the solver,
+and `embed="card"` also draws the card, inside a shadow root so neither
+stylesheet reaches the other. An origin can place it with an empty
+`<div id="bagel-challenge">`. An origin whose CSP blocks the runtime script or
+the same-origin worker can't run the embedded widget, and those clients meet
+the blocking wall on the next gated request.
 
-Bagel runs the pinned Vela checkout after shrinking with a deterministic seed of
-zero. Code rewriting starts at `unpack` and `seal` and follows direct calls,
-excluding every function reachable from `solve`. The selected functions receive
-control-flow flattening, constant rewriting and full direct-call promotion.
-In the current module, all their helpers are shared with `solve`, so only the
-two entry points are selected. Data encryption still covers the module. The
-profile lives in
-[crates/bagel-web/solver.rs](crates/bagel-web/solver.rs).
+The proof runs in a wasm module built from `bagel-solver` and driven by a Web
+Worker. The page carries only an opaque handoff and the verify URL, and the
+module unpacks the key and difficulty, searches nonces and seals the solution.
+Every asset URL carries a `?v=` digest, so a new build never runs a cached
+worker against a fresh module. Each challenge is issued its own vela rewrite of
+the module from a pool prepared at startup, falling back to the static build,
+and every build proves the static rewrite and three more seeds against the
+native solver before it ships. The profile lives in `bagel_solver::host`.
+Building needs `lld` for `wasm32v1-none`, shrinks with `wasm-opt` when
+binaryen is available, and `BAGEL_SOLVER_WASM` substitutes a prebuilt module.
 
-Every build checks the original and rewritten modules against the native solver
-through handoff decoding, SHA and scratchpad searches, repeated calls, malformed
-lengths and sealed output bytes. Each module gets 20 billion fuel units across
-the scenario, 4 MiB of linear memory, 4096 table elements and 4096 captured
-memory bytes. Verification runs in a fresh process with a 30-second deadline
-and a 1 GiB address-space cap covering parsing, compilation and execution.
-A mismatch, trap, failed worker or exhausted budget fails the build, including
-when `BAGEL_SOLVER_WASM` supplies the input. The regression check also validates
-the served artifact and repeats the workload across four rewrite seeds with
-the selected profile and an aggressive profile covering every function.
+Two proofs are available. `pow-sha256` hashes once per attempt and
+`difficulty` defaults to 16. `pow-scratch` walks a scratchpad of `memory` KiB,
+a power of two from 64 to 1024 defaulting to 256, in a data-dependent order
+and defaults `difficulty` to 10. Every attempt touches the whole pad, so a
+batch solver gains little over a browser. `difficulty` counts leading zero bits
+for both, so each bit doubles the work, and the two aren't comparable at equal
+settings. Raise either one against a real browser rather than by arithmetic,
+since an unsolvable setting locks every visitor out and looks identical to a
+slow one.
 
-```sh
-nix develop --command cargo test -p bagel-web solver::
-```
+A rule or threshold may add `difficulty=N` to demand more than the challenge's
+own setting. A pass is sealed at the difficulty it was verified at, and a gate
+accepts any pass at or above the level it asks for. `pow-sha256` may also
+carry `gpu-difficulty` and `gpu-duration`. A browser with WebGPU then searches
+the harder level in a compute shader and earns the longer token, everything
+else solves `difficulty` in wasm, and `pow["level"]` says which. A site that
+wants the GPU-sized proof from everyone sets `difficulty` to that number and
+`gpu-required=#true`, which shows a visitor without WebGPU a message instead
+of a wasm spinner.
 
-Two proofs are available. `runtime="pow-sha256"` hashes once per attempt and
-`difficulty` defaults to 16. `runtime="pow-scratch"` seeds a scratchpad of
-`memory` KiB, a power of two from 64 to 1024 defaulting to 256, walks it in a
-data-dependent order and defaults `difficulty` to 10. Every attempt touches the
-whole pad, so a batch solver gains little over a browser.
+Each challenge key is bound to its session and request identity, and
+redemption consumes it once, so a replayed proof can't issue another pass.
 
-`difficulty` counts leading zero bits of the result for both proofs, so each
-extra bit doubles the expected attempts. The two are not comparable at equal
-settings, because one scratchpad attempt costs thousands of hashes. Raise either
-one against a real browser rather than by arithmetic, since an unsolvable
-setting locks every visitor out and looks identical to a slow one.
+## Build features
 
-A `challenge` or `check` rule, or a scorecard threshold, may add
-`difficulty=N` to demand more than the challenge's own setting, which is how a
-suspicious score buys a harder proof without a second challenge. A pass is
-sealed with the difficulty it was verified at, and a gate accepts any pass at
-or above the level it asks for.
-
-`pow-sha256` may also carry `gpu-difficulty=N` above `difficulty` and an
-optional `gpu-duration` in seconds. A browser with WebGPU then searches the
-harder level in a compute shader from `/__bagel/static/gpu.mjs` and earns
-`gpu-duration`, while everything else solves `difficulty` in wasm and earns
-`duration`. On the first-cut shader a desktop GPU reaches about 460 million
-hashes a second, a recent phone 120 million, Chrome's software Vulkan on a
-GPU-less server 10 million, and the wasm path under one million, so
-difficulty 26 is half a second on a phone and seven seconds on a CPU farm.
-Set `gpu-difficulty` for the phone and read `pow["level"]` in policy.
-
-A site that wants the GPU-sized proof from everyone sets `difficulty` to that
-number alone. `gpu-required=#true` then shows a visitor without WebGPU a
-message instead of a wasm spinner grinding for minutes. It cannot stop a
-client from grinding anyway, since the server only ever sees a nonce.
-
-Each challenge gets a random key bound to its session and request identity.
-Redemption consumes it once, so replaying a proof cannot issue another pass.
-
-ACME needs a build with the `bagel-daemon` crate's `acme` feature and a TCP
-listener, and an ACME configuration the build can't honor fails validation
-rather than falling back to plaintext. Crawler verification by
-forward-confirmed reverse DNS needs the `fcrdns` feature, which is on by
-default. Turning it off drops the DNS resolver and about 1.3 MB with it, and a
-`crawlers` block in such a build fails validation rather than waving every
-claimed crawler through as verified. The static `verified-crawlers` ranges work
-in either build and need no DNS. Upstream proxy connections are HTTP only for
-now, and both binaries parse their command line with Pound rather than Clap.
+ACME needs the `bagel-daemon` crate's `acme` feature and a TCP listener, and
+an ACME configuration the build can't honor fails validation rather than
+falling back to plaintext. Crawler verification by forward-confirmed reverse
+DNS needs `fcrdns`, on by default, and a `crawlers` block in a build without
+it fails validation rather than waving every claimed crawler through. Upstream
+proxy connections are HTTP only for now.
 
 ## Reload and shutdown
 
 SIGHUP reloads the web policy and carries signing keys, rate counters and
-poison memory across the reload. Defense configuration and bound
-listener or TLS settings need a restart, and a rejected configuration leaves
-the running one in place.
+poison memory across. Defense configuration and listener or TLS settings need
+a restart, and a rejected configuration leaves the running one in place.
 
-Shutdown closes defense record intake first and drains whatever was already
-accepted into the queue, with `drain-timeout-secs` still bounding the whole
-thing. Records emitted after intake closes are rejected. The queue stays
-bounded in normal operation, and any web records it had to drop show up in
-`bagel_offenses_total{result="dropped"}`.
+Shutdown closes defense record intake first and drains what was already
+queued, bounded by `drain-timeout-secs`. Web records the bounded queue had to
+drop show up in `bagel_offenses_total{result="dropped"}`.
 
 ## Development
 
