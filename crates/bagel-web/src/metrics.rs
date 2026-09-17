@@ -40,6 +40,19 @@ pub fn init_metrics() {
       "bagel_offenses_total",
       "Verdicts handed to the defense plane by kind and outcome"
    );
+   describe_counter!(
+      "bagel_pow_verified_total",
+      "Proofs of work accepted by challenge and the level they were sealed at"
+   );
+   describe_counter!("bagel_beacon_total", "Render beacons fetched by kind");
+}
+
+pub fn record_pow_verified(site: &str, challenge: &str, level: u32) {
+   counter!("bagel_pow_verified_total", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "level" => level.to_string()).increment(1);
+}
+
+pub fn record_beacon(site: &str, kind: &'static str) {
+   counter!("bagel_beacon_total", "site" => site.to_owned(), "kind" => kind).increment(1);
 }
 
 pub fn record_rule_hit(site: &str, rule_name: &str) {

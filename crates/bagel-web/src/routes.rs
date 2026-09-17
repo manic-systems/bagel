@@ -53,6 +53,7 @@ use crate::{
    },
    host::CanonicalHost,
    ip_network_prefix,
+   metrics,
    server::handle_request,
    state::{
       SharedState,
@@ -228,6 +229,10 @@ fn handle_beacon(shared: &SharedState, id: &str, req: &Request) -> Response {
          )
       {
          state.runtime.visits.record_beacon(session, kind);
+         metrics::record_beacon(host.as_str(), match kind {
+            visit::BeaconKind::Positive => "render",
+            visit::BeaconKind::Negative => "never",
+         });
       }
    }
    Response::builder()
@@ -520,6 +525,7 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
       .runtime
       .solve_tracker
       .record(host.as_str(), SourceNetwork::from_ip(client_ip));
+   metrics::record_pow_verified(host.as_str(), challenge_name, level);
 
    Response::builder()
       .status(StatusCode::OK)

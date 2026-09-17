@@ -390,10 +390,10 @@ visit["assets"]
 `action="beacon"` continues to the next rule and appends a style block and
 one empty element to proxied, uncompressed HTML. The block holds two image
 URLs bound to the session, host and a ten-minute bucket. The positive one is
-a `background-image` on a 1px pseudo-element under `@media (min-width: 1px)`,
-fetched once styles resolve, which no HTML library does because none lay
-out. The negative one sits under `@media (max-width: 0px)`, which no browser
-evaluates true, so fetching it means the client pulls every URL it sees.
+a `background-image` on a 1px pseudo-element, fetched once styles resolve,
+which no HTML library does because none lay out. The negative one sits under
+`@media not all`, which no browser evaluates true, so fetching it means the
+client pulls every URL it sees.
 The positive beacon sets `rendered` and resets `documents`, the negative one
 sets `greedy`, and injection stops once a session has rendered. The origin's
 CSP must allow inline styles and same-origin images. Beacon is not allowed as
@@ -716,7 +716,7 @@ tells you whether the candidate could otherwise have acted. Traces never
 contain token bytes, binding values, memory identifiers, full query strings or
 key material.
 
-Six bounded metrics are exported.
+Eight bounded metrics are exported.
 
 ```
 bagel_scoring_signal_total
@@ -725,7 +725,13 @@ bagel_scoring_decision_total
 bagel_scoring_score
 bagel_poison_requests_total
 bagel_maze_renderer_requests_total
+bagel_pow_verified_total
+bagel_beacon_total
 ```
+
+`bagel_pow_verified_total` carries the level a proof was sealed at, so the
+GPU and wasm tiers read as two series, and `bagel_beacon_total` counts
+`render` and `never` fetches.
 
 `bagel_scoring_score` is a histogram with buckets at 0, 10, 20, 40, 60, 80,
 100, 150, 200, 300 and 500, and the numeric score is the histogram value, never
