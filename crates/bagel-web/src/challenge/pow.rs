@@ -36,6 +36,7 @@ use crate::{
       Response,
    },
    config::CustomTheme,
+   routes::RUNTIME_URL,
    template::{
       self,
       LoaderData,
@@ -44,8 +45,6 @@ use crate::{
       Widget,
    },
 };
-
-const RUNTIME: &str = "/__bagel/static/runtime.mjs";
 
 /// A proof-of-work challenge solved by the wasm module. `pow-sha256` counts
 /// zero nibbles of one digest, `pow-scratch` counts zero bits after a
@@ -131,7 +130,7 @@ impl PowChallenge {
          },
       };
 
-      widget.driven_by(RUNTIME, loader)
+      widget.driven_by(&RUNTIME_URL, loader)
    }
 
    /// Renders the challenge page with the solver embedded, so the work runs

@@ -88,8 +88,10 @@ The proof itself runs in a wasm module built from the `bagel-solver` crate,
 served at `/__bagel/static/solver.wasm` and driven by a short shim at
 `/__bagel/static/runtime.mjs`. The shim starts a dedicated Web Worker at
 `/__bagel/static/worker.mjs`, keeping wasm compilation and nonce searches off
-the main thread while the page handles progress and proof submission. Workers
-stop when the proof is ready, the check fails, or the page is left. The page
+the main thread while the page handles progress and proof submission. Every
+asset URL carries a `?v=` digest of the whole set, so a new build never runs a
+cached worker against a fresh module. Workers stop when the proof is ready,
+the check fails, or the page is left. The page
 carries only an opaque handoff blob and the verify URL, and the module
 unpacks the key and difficulty, searches nonces, and seals the solution it
 posts back, so nothing readable on the wire

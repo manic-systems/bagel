@@ -1,4 +1,5 @@
-const WORKER = "/__bagel/static/worker.mjs";
+const VERSION = new URL(import.meta.url).search;
+const WORKER = `/__bagel/static/worker.mjs${VERSION}`;
 const completed = new WeakSet();
 
 function shadowRootFor(host) {

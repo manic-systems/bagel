@@ -3,6 +3,7 @@ use std::{
       IpAddr,
       SocketAddr,
    },
+   sync::LazyLock,
    time::Duration,
 };
 
@@ -23,6 +24,7 @@ use http_body_util::{
    BodyExt as _,
    Limited,
 };
+use ring::digest;
 
 use crate::{
    SourceNetwork,
@@ -72,6 +74,21 @@ const RUNTIME_MJS: &str = include_str!("../assets/challenge/runtime.mjs");
 const WORKER_MJS: &str = include_str!("../assets/challenge/worker.mjs");
 const GPU_MJS: &str = include_str!("../assets/challenge/gpu.mjs");
 const SOLVER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/solver.wasm"));
+
+/// The runtime URL the challenge page loads.
+pub static RUNTIME_URL: LazyLock<String> = LazyLock::new(|| {
+   let mut ctx = digest::Context::new(&digest::SHA256);
+   for asset in [
+      RUNTIME_MJS.as_bytes(),
+      WORKER_MJS.as_bytes(),
+      GPU_MJS.as_bytes(),
+      SOLVER_WASM,
+   ] {
+      ctx.update(asset);
+   }
+   let version = HEXLOWER.encode(&ctx.finish().as_ref()[..8]);
+   format!("/__bagel/static/runtime.mjs?v={version}")
+});
 
 /// The endpoints bagel answers itself, under a prefix no origin owns.
 enum Internal {
@@ -151,7 +168,7 @@ fn asset(content: &'static [u8], content_type: &'static str) -> Response {
    Response::builder()
       .status(StatusCode::OK)
       .header(header::CONTENT_TYPE, content_type)
-      .header(header::CACHE_CONTROL, "public, max-age=86400")
+      .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
       .body(Body::from(Bytes::from_static(content)))
       .expect("static asset response parts are valid")
 }

@@ -1,5 +1,6 @@
-const MODULE = "/__bagel/static/solver.wasm";
-const GPU = "/__bagel/static/gpu.mjs";
+const VERSION = new URL(import.meta.url).search;
+const MODULE = `/__bagel/static/solver.wasm${VERSION}`;
+const GPU = `/__bagel/static/gpu.mjs${VERSION}`;
 const SLICE_MS = 40;
 
 const decode = (text) =>
