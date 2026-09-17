@@ -26,6 +26,7 @@ mod state_validation;
 pub mod tag_fetcher;
 pub mod template;
 pub mod tls;
+pub mod visit;
 mod wire;
 
 use std::net::{

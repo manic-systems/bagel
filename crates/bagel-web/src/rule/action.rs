@@ -38,6 +38,9 @@ pub enum Action {
    Lure {
       maze: String,
    },
+   /// Append render beacons to the proxied page until the session fetches
+   /// one, then continue.
+   Beacon,
    /// Proxy to a different backend with optional URL rewrite.
    Proxy {
       match_re: Option<Regex>,
@@ -70,6 +73,7 @@ pub struct ChallengeAction {
 }
 
 impl Action {
+   pub const BEACON: &str = "beacon";
    pub const BLOCK: &str = "block";
    pub const CHALLENGE: &str = "challenge";
    pub const CHECK: &str = "check";
@@ -133,6 +137,7 @@ impl Action {
                .ok_or("lure action requires a maze")?;
             Self::Lure { maze }
          },
+         Self::BEACON => Self::Beacon,
          Self::SMEAR => {
             if settings
                .maze
@@ -225,6 +230,7 @@ impl Action {
          Self::Tarpit { .. } => Self::TARPIT,
          Self::Smear => Self::SMEAR,
          Self::Lure { .. } => Self::LURE,
+         Self::Beacon => Self::BEACON,
          Self::Proxy { .. } => Self::PROXY,
          Self::Context { .. } => Self::CONTEXT,
          Self::Challenge(_) => Self::CHALLENGE,

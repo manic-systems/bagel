@@ -38,6 +38,7 @@ use crate::{
       rate::RateSnapshot,
    },
    tls::TlsFingerprint,
+   visit::VisitSnapshot,
 };
 
 #[must_use]
@@ -90,6 +91,9 @@ pub struct ConditionContext {
    /// Challenge passes by this host and source network in minute buckets,
    /// `None` when no client network resolved.
    pub solves:           Option<RateSnapshot>,
+   /// What this clearance session has done with its pages, `None` without a
+   /// session cookie.
+   pub visit:            Option<VisitSnapshot>,
    pub poison_returned:  bool,
    pub crawler_verified: bool,
    pub lease_active:     bool,
@@ -226,6 +230,18 @@ impl ConditionContext {
       );
       scope.push_constant("solves", solves_map);
 
+      let visit = self.visit.unwrap_or_default();
+      let mut visit_map = rhai::Map::new();
+      visit_map.insert("available".into(), Dynamic::from(self.visit.is_some()));
+      visit_map.insert("rendered".into(), Dynamic::from(visit.rendered));
+      visit_map.insert("greedy".into(), Dynamic::from(visit.greedy));
+      visit_map.insert(
+         "documents".into(),
+         Dynamic::from(i64::from(visit.documents)),
+      );
+      visit_map.insert("assets".into(), Dynamic::from(i64::from(visit.assets)));
+      scope.push_constant("visit", visit_map);
+
       let mut poison_map = rhai::Map::new();
       poison_map.insert("returned".into(), Dynamic::from(self.poison_returned));
       scope.push_constant("poison", poison_map);
@@ -320,6 +336,7 @@ impl ConditionContext {
          network_results: HashMap::new(),
          rate: None,
          solves: None,
+         visit: None,
          poison_returned: false,
          crawler_verified: false,
          lease_active: false,

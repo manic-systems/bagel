@@ -58,7 +58,13 @@ use crate::{
       SharedState,
       StateInner,
    },
+   visit::{
+      self,
+      BEACON_PREFIX,
+   },
 };
+
+const BEACON_SVG: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>";
 
 const WIDGET_CSS: &str = include_str!("../assets/widget.css");
 const RUNTIME_MJS: &str = include_str!("../assets/challenge/runtime.mjs");
@@ -71,6 +77,7 @@ enum Internal {
    Runtime,
    Worker,
    Solver,
+   Beacon(String),
    Verify(String),
 }
 
@@ -83,6 +90,14 @@ fn internal_route(path: &str) -> Option<Internal> {
       "/__bagel/static/worker.mjs" => return Some(Internal::Worker),
       "/__bagel/static/solver.wasm" => return Some(Internal::Solver),
       _ => {},
+   }
+   if let Some(id) = path
+      .strip_prefix(BEACON_PREFIX)
+      .and_then(|rest| rest.strip_suffix(".svg"))
+      && id.len() == 32
+      && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+   {
+      return Some(Internal::Beacon(id.to_owned()));
    }
    let name = path.strip_prefix("/__bagel/")?.strip_suffix("/verify")?;
    (!name.is_empty() && !name.contains('/')).then(|| Internal::Verify(percent_decode(name)))
@@ -112,9 +127,12 @@ pub async fn dispatch(shared: &SharedState, addr: SocketAddr, req: Request) -> R
          )
       },
       Internal::Solver if readable => asset(SOLVER_WASM, "application/wasm"),
-      Internal::Css | Internal::Runtime | Internal::Worker | Internal::Solver => {
-         method_not_allowed("GET,HEAD")
-      },
+      Internal::Beacon(id) if readable => handle_beacon(shared, &id, &req),
+      Internal::Css
+      | Internal::Runtime
+      | Internal::Worker
+      | Internal::Solver
+      | Internal::Beacon(_) => method_not_allowed("GET,HEAD"),
       Internal::Verify(name) if readable => handle_verify(shared, &name, &req),
       Internal::Verify(name) if posted => handle_pow_verify(shared, &name, req).await,
       Internal::Verify(_) => method_not_allowed("GET,HEAD,POST"),
@@ -178,6 +196,39 @@ fn challenge_cookie(host: &CanonicalHost, sealed: &str, expiry: i64) -> String {
       format!(" Domain={host};")
    };
    format!("{cname}={sealed}; Path=/;{domain} Expires={exp_str}; HttpOnly; SameSite=Lax")
+}
+
+/// Record which beacon a session fetched. Every well-formed id gets the same
+/// image, so the response never says whether the id meant anything.
+fn handle_beacon(shared: &SharedState, id: &str, req: &Request) -> Response {
+   let state = shared.load();
+   if let Some(host) = canonical_request_host(req) {
+      let client_ip = client_ip_for(&state, req);
+      let carried = RequestChallengeState::from_headers(
+         req.headers(),
+         host.as_str(),
+         &state.keys.public_key_bytes,
+         &state.keys.pkcs8_seed,
+         client_ip,
+      );
+      if let Some(session) = carried.token.map(|token| token.session)
+         && let Some(kind) = visit::classify_beacon(
+            &state.keys.pkcs8_seed,
+            &session,
+            host.as_str(),
+            unix_timestamp().cast_unsigned(),
+            id,
+         )
+      {
+         state.runtime.visits.record_beacon(session, kind);
+      }
+   }
+   Response::builder()
+      .status(StatusCode::OK)
+      .header(header::CONTENT_TYPE, "image/svg+xml")
+      .header(header::CACHE_CONTROL, "private, no-store")
+      .body(Body::from(Bytes::from_static(BEACON_SVG)))
+      .expect("beacon response parts are valid")
 }
 
 /// Generic verify handler: validates the hex key token, issues a signed cookie,

@@ -71,6 +71,7 @@ use crate::{
    tag_fetcher::HtmlTag,
    template::Theme,
    tls::validate_bind,
+   visit::VisitTracker,
 };
 #[cfg(feature = "fcrdns")]
 use crate::{
@@ -120,6 +121,8 @@ pub struct Runtime {
    pub solve_tracker:      Arc<RateTracker>,
    /// Claim-to-fingerprint census, shared across reloads.
    pub census:             Arc<FingerprintCensus>,
+   /// Per-session render and request-shape records, shared across reloads.
+   pub visits:             Arc<VisitTracker>,
    pub pending_challenges: Arc<PendingChallenges>,
    /// Shared across reloads when its inputs are unchanged.
    pub poison:             Arc<PoisonStore>,
@@ -478,6 +481,10 @@ impl StateInner {
          || Arc::new(FingerprintCensus::default()),
          |previous| Arc::clone(&previous.runtime.census),
       );
+      let visits = prev.map_or_else(
+         || Arc::new(VisitTracker::default()),
+         |previous| Arc::clone(&previous.runtime.visits),
+      );
 
       let policy_revision = POLICY_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
       let pending_challenges = prev.map_or_else(
@@ -605,6 +612,7 @@ impl StateInner {
             rate_tracker,
             solve_tracker,
             census,
+            visits,
             pending_challenges,
             poison,
             renderers,

@@ -67,6 +67,7 @@ use crate::{
    state::StateInner,
    tag_fetcher,
    template,
+   visit,
 };
 
 pub(super) fn proxy_outcome(
@@ -109,7 +110,7 @@ pub(super) async fn apply_candidate_action(action: &Action, eval: &mut Eval<'_>)
             tarpit_response(eval.state, maze, eval.host, eval.ctx.remote_ip).await,
          )
       },
-      Action::Report { .. } | Action::Lure { .. } => RuleOutcome::Continue,
+      Action::Report { .. } | Action::Lure { .. } | Action::Beacon => RuleOutcome::Continue,
       other => dispatch_sub_action(other, eval),
    }
 }
@@ -273,6 +274,25 @@ pub(super) async fn evaluate_rule_recursive(rule: &RuleState, eval: &mut Eval<'_
             eval.request_uri.path(),
          ) {
             eval.challenge_state.injections.push(fragment);
+         }
+         RuleOutcome::Continue
+      },
+      Action::Beacon => {
+         tracing::debug!(rule = rule.name, action = Action::BEACON, "rule hit");
+         bmetrics::record_action(eval.host, Action::BEACON);
+         if let Some(session) = eval
+            .challenge_state
+            .token
+            .as_ref()
+            .map(|token| token.session)
+            && !eval.ctx.visit.is_some_and(|visit| visit.rendered)
+         {
+            eval.challenge_state.injections.push(visit::beacon_fragment(
+               &eval.state.keys.pkcs8_seed,
+               &session,
+               eval.host,
+               unix_timestamp().cast_unsigned(),
+            ));
          }
          RuleOutcome::Continue
       },

@@ -344,6 +344,10 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       rate_60s = ctx.rate.map_or(0, |snap| snap.last_60),
       poison_returned = ctx.poison_returned,
       solves_60m = ctx.solves.map_or(0, |snap| snap.last_60),
+      visit_rendered = ctx.visit.map(|visit| visit.rendered),
+      visit_greedy = ctx.visit.map(|visit| visit.greedy),
+      visit_documents = ctx.visit.map(|visit| visit.documents),
+      visit_assets = ctx.visit.map(|visit| visit.assets),
       claim = ctx.claim.map(|claim| claim.key()),
       census_claim_networks = ctx.census.map(|snap| snap.claim_networks),
       census_pair_networks = ctx.census.map(|snap| snap.pair_networks),
@@ -430,6 +434,14 @@ fn request_context(
 
    let mut ctx = ConditionContext::from_request(req);
    host.clone_into(&mut ctx.host);
+   if let Some(session) = challenge_state.token.as_ref().map(|token| token.session) {
+      let document = req
+         .headers()
+         .get("sec-fetch-dest")
+         .and_then(|value| value.to_str().ok())
+         .is_none_or(|dest| dest == "document");
+      ctx.visit = Some(state.runtime.visits.record(session, document));
+   }
    if let Some(ip) = client_ip {
       ctx.remote_address = ip.to_string();
       ctx.remote_ip = Some(ip);

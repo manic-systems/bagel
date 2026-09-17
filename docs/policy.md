@@ -95,12 +95,13 @@ The rest are maps.
 | Binding    | Keys                            | Value                                                                      |
 | ---------- | ------------------------------- | -------------------------------------------------------------------------- |
 | `headers`  | Lowercase header name           | Header value, empty when the value is not valid UTF-8                      |
-| `fp`       | Listed below                    | TLS and HTTP/2 fingerprints, capture status and source                    |
+| `fp`       | Listed below                    | TLS and HTTP/2 fingerprints, capture status and source                     |
 | `networks` | Configured network name         | True when the client IP falls inside that network                          |
 | `rate`     | `available`, `1s`, `10s`, `60s` | Normal request counts for this host and source network                     |
 | `claim`    | Five keys, listed below         | The browser the user agent claims to be                                    |
 | `census`   | Four keys, listed below         | How common this claim and transport fingerprint pairing is                 |
 | `solves`   | `available`, `10m`, `60m`       | Proof-of-work passes for this host and source network                      |
+| `visit`    | Five keys, listed below         | What this clearance session has done with the pages it was served          |
 | `poison`   | `returned`                      | True when a maze on this host holds an active entry for the source network |
 | `lease`    | `active`                        | True while the client address sits inside an active defense lease          |
 | `crawler`  | `verified`                      | True when forward-confirmed reverse DNS matched a configured provider      |
@@ -185,18 +186,18 @@ the peer and token before accepting metadata, then strips both headers.
 Any routes bypassing Bagel must strip them too. Invalid reports never fall
 back to the nginx format.
 
-| Field | Value |
-| --- | --- |
-| `edge_status` | Capture status, with `partial` for authenticated reports missing TLS fields |
-| `edge_tls_version` | Negotiated TLS version code such as `13` |
-| `edge_cipher` | Negotiated cipher name |
-| `edge_http` | Visitor protocol such as `HTTP/2` or `HTTP/3` |
-| `edge_ciphers_sha1` | Hexadecimal SHA-1 of the advertised cipher list |
-| `edge_extensions_sha1` | Hexadecimal SHA-1 of the advertised extensions |
-| `edge_hello_length` | ClientHello length as a decimal string |
-| `edge_family` | Stack behind a recognised cipher list, `chromium`, `firefox`, `safari` or `okhttp` |
-| `edge_list` | Which of that stack's lists matched, such as `chromium`, `chromium-tls13` or `firefox-legacy` |
-| `edge_grease` | `true` when the list carried a GREASE cipher in front |
+| Field                  | Value                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `edge_status`          | Capture status, with `partial` for authenticated reports missing TLS fields                   |
+| `edge_tls_version`     | Negotiated TLS version code such as `13`                                                      |
+| `edge_cipher`          | Negotiated cipher name                                                                        |
+| `edge_http`            | Visitor protocol such as `HTTP/2` or `HTTP/3`                                                 |
+| `edge_ciphers_sha1`    | Hexadecimal SHA-1 of the advertised cipher list                                               |
+| `edge_extensions_sha1` | Hexadecimal SHA-1 of the advertised extensions                                                |
+| `edge_hello_length`    | ClientHello length as a decimal string                                                        |
+| `edge_family`          | Stack behind a recognised cipher list, `chromium`, `firefox`, `safari` or `okhttp`            |
+| `edge_list`            | Which of that stack's lists matched, such as `chromium`, `chromium-tls13` or `firefox-legacy` |
+| `edge_grease`          | `true` when the list carried a GREASE cipher in front                                         |
 
 These observations do not reconstruct JA4. The extension hash and hello
 length vary per connection because browsers shuffle extension order, so treat
@@ -355,6 +356,51 @@ network in one-minute buckets, read without counting the current request. A
 person solves about once per token lifetime, so a network completing dozens of
 proofs an hour is a solver farm sharing a prefix, or a large NAT, which is
 why this is a signal and not a rule.
+
+## Visit shape and render beacons
+
+Everything above asks what a client is. `visit` records what it does. The
+record is keyed by the 32-byte session inside the clearance cookie, lives for
+an hour after the last request, and is unavailable before a session exists,
+which is fine because the interstitial is never proxied HTML.
+
+```
+visit["available"]
+visit["rendered"]
+visit["greedy"]
+visit["documents"]
+visit["assets"]
+```
+
+`documents` counts requests whose `sec-fetch-dest` is `document` or absent,
+and `assets` counts the rest. `rendered` and `greedy` come from beacons.
+
+`action="beacon"` continues to the next rule and, when the request ends up
+proxied and the origin answers with uncompressed HTML, appends a style block
+and one empty element. The block carries two image URLs bound to the session,
+host and a ten-minute bucket. The positive one is a `background-image` on a
+1px pseudo-element under `@media (min-width: 1px)`, which a browser fetches
+once styles resolve and a box exists and which no HTML library fetches,
+because none of them lay out. The negative one sits under
+`@media (max-width: 0px)`, which no browser evaluates true, so fetching it
+means the client pulls every URL it sees. Fetching the positive beacon sets
+`rendered` and resets `documents`, fetching the negative one sets `greedy`,
+and once a session has rendered the rule stops injecting. The origin's CSP
+must allow inline styles and same-origin images for the beacon to load, the
+same constraint the `check` widget documents. Beacon is not allowed as a
+threshold action.
+
+```kdl
+signal "unrendered" weight=40 condition=(rhai)#"""
+   visit["available"] && !visit["rendered"] && visit["documents"] >= 3
+   """#
+signal "greedy" weight=40 condition=(rhai)#"visit["greedy"]"#
+```
+
+A client can read the `url()` values out of the style block and fetch them.
+To pass it has to fetch the positive one and skip the negative one, which
+means evaluating media queries, and together with the lure it has to get
+three traps right at once. This is a cost step, not a proof.
 
 ## Scoring
 
@@ -638,6 +684,10 @@ fields.
 - fp_edge_family
 - fp_edge_list
 - fp_edge_grease
+- visit_rendered
+- visit_greedy
+- visit_documents
+- visit_assets
 - candidate_threshold
 - candidate_action
 - candidate_status
