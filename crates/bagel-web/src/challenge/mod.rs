@@ -313,11 +313,26 @@ impl ChallengeRegistry {
                         })
                   })
                   .transpose()?;
+               let gpu_required = match cfg
+                  .parameters
+                  .get("gpu-required")
+                  .map_or("false", String::as_str)
+               {
+                  "true" => true,
+                  "false" => false,
+                  other => {
+                     return Err(error::Error::Config(format!(
+                        "challenge '{}': gpu-required must be true or false, got {other:?}",
+                        cfg.name
+                     )));
+                  },
+               };
                let pow = PowChallenge {
                   kind,
                   difficulty,
                   blocks_log2,
                   gpu_difficulty,
+                  gpu_required,
                   embed,
                };
                if !pow.difficulty_range().contains(&difficulty) {
@@ -345,6 +360,13 @@ impl ChallengeRegistry {
                } else if gpu_duration.is_some() {
                   return Err(error::Error::Config(format!(
                      "challenge '{}': gpu-duration needs gpu-difficulty",
+                     cfg.name
+                  )));
+               }
+               if gpu_required && (kind != Kind::Sha256 || gpu_difficulty.is_some()) {
+                  return Err(error::Error::Config(format!(
+                     "challenge '{}': gpu-required needs runtime pow-sha256 and a single \
+                      difficulty, since the base level is the one a GPU must prove",
                      cfg.name
                   )));
                }

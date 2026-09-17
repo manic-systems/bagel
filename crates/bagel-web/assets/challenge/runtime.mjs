@@ -36,6 +36,9 @@ async function run(host) {
           case "proof":
             resolve(data.proof);
             break;
+          case "unsupported":
+            reject(new Error("unsupported"));
+            break;
           default:
             reject(new Error("Challenge worker failed"));
         }
@@ -60,7 +63,12 @@ async function run(host) {
     if (host.dataset.mode !== "background") window.location.reload();
   } catch (error) {
     if (!controller.signal.aborted) {
-      if (status) status.textContent = "Couldn't complete the check. Reload to try again.";
+      if (status) {
+        status.textContent =
+          error?.message === "unsupported"
+            ? "This site needs WebGPU. Enable it in your browser or use a current Chrome, Edge or Safari."
+            : "Couldn't complete the check. Reload to try again.";
+      }
       console.error("Bagel challenge failed", error);
     }
   } finally {

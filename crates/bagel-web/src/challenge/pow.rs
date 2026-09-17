@@ -57,6 +57,8 @@ pub struct PowChallenge {
    pub blocks_log2:    u8,
    /// Harder level offered to solvers with a GPU, earning the longer token.
    pub gpu_difficulty: Option<u32>,
+   /// Tell clients without WebGPU to stop instead of grinding the base level.
+   pub gpu_required:   bool,
    /// How the solver appears when spliced into a proxied page.
    pub embed:          Presentation,
 }
@@ -105,9 +107,13 @@ impl PowChallenge {
          kind:           self.kind,
          difficulty:     u8::try_from(level).expect("difficulty is validated to fit"),
          blocks_log2:    self.blocks_log2,
-         gpu_difficulty: self.gpu_level(level).map_or(0, |gpu| {
-            u8::try_from(gpu).expect("gpu difficulty is validated to fit")
-         }),
+         gpu_difficulty: if self.gpu_required {
+            u8::try_from(level).expect("difficulty is validated to fit")
+         } else {
+            self.gpu_level(level).map_or(0, |gpu| {
+               u8::try_from(gpu).expect("gpu difficulty is validated to fit")
+            })
+         },
       };
       let loader = LoaderData {
          payload: BASE64URL_NOPAD.encode(&pack_handoff(iv, &handoff)),
@@ -194,6 +200,7 @@ mod tests {
          difficulty:     1,
          blocks_log2:    0,
          gpu_difficulty: None,
+         gpu_required:   false,
          embed:          Presentation::Hidden,
       };
       let key = [0u8; 32];

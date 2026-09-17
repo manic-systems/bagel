@@ -156,6 +156,12 @@ CPU farm running headless Chrome. Set `gpu-difficulty` for the phone, keep
 `difficulty` where the wasm path already was, and read `pow["level"]` in
 policy to see which tier a token holds.
 
+A site that wants the GPU-sized proof from everyone sets `difficulty` to that
+number with no `gpu-difficulty`. Adding `gpu-required=true` changes only what
+a visitor without WebGPU sees, a message saying the site needs it instead of a
+spinner grinding the proof in wasm for minutes. It cannot keep a client from
+grinding anyway, since the server only ever sees a nonce.
+
 Each challenge gets a random key bound to its session and request identity.
 Redemption consumes it once, so replaying a proof cannot issue another pass.
 

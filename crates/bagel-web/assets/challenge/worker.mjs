@@ -109,6 +109,7 @@ self.onmessage = async ({ data }) => {
     if (levels < 0) throw new Error("Invalid challenge handoff");
     const cpuLevel = levels & 0xff;
     const gpuLevel = levels >>> 8;
+    const gpuRequired = gpuLevel === cpuLevel;
 
     const started = performance.now();
     let level = cpuLevel;
@@ -117,6 +118,10 @@ self.onmessage = async ({ data }) => {
       const keyBytes = view().slice(base, base + key());
       found = await solveOnGpu(keyBytes, gpuLevel, started);
       if (found !== null) level = gpuLevel;
+    }
+    if (found === null && gpuRequired) {
+      self.postMessage({ type: "unsupported" });
+      return;
     }
     if (found === null) found = await solveOnCpu(solve, started);
 

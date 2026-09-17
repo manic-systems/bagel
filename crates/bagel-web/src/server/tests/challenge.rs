@@ -125,6 +125,7 @@ async fn background_pow_solves_on_the_live_page() {
       difficulty:     1,
       blocks_log2:    0,
       gpu_difficulty: None,
+      gpu_required:   false,
       embed:          crate::template::Presentation::Hidden,
    };
    let nonce = (0_u64..1_000_000)
