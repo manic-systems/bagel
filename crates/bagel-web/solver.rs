@@ -89,7 +89,7 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
       "buf",
       verify::CallOutcome::Returned(vec![verify::Value::I32(base as i32)]),
    )];
-   for length in [0, 38, 40, 65, -1] {
+   for length in [0, 39, 41, 65, -1] {
       actions.push(call("unpack", vec![verify::Value::I32(length)]));
       expected.push((
          "unpack",
@@ -104,11 +104,13 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
    ] {
       let key: [u8; 32] =
          array::from_fn(|index| (index as u8).wrapping_mul(7).wrapping_add(13 + case));
+      let gpu_difficulty = if case == 1 { 26 } else { 0 };
       let handoff = codec::pack_handoff([5, 7, 11, case], &codec::Handoff {
          key,
          kind,
          difficulty,
          blocks_log2: blocks,
+         gpu_difficulty,
       });
       let mut block = sha256::KeyBlock::new(&key);
       let mut pad = vec![[0u8; 32]; 1 << blocks];
@@ -132,7 +134,9 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
       )]));
       expected.push((
          "unpack",
-         verify::CallOutcome::Returned(vec![verify::Value::I32(i32::from(difficulty))]),
+         verify::CallOutcome::Returned(vec![verify::Value::I32(
+            i32::from(difficulty) | (i32::from(gpu_difficulty) << 8),
+         )]),
       ));
       for (start, count, found) in [
          (0, 0, -1),
@@ -149,11 +153,17 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
             verify::CallOutcome::Returned(vec![verify::Value::I64(found)]),
          ));
       }
+      actions.push(call("key", Vec::new()));
+      expected.push((
+         "key",
+         verify::CallOutcome::Returned(vec![verify::Value::I32(codec::KEY_LEN as i32)]),
+      ));
       actions.push(call("seal", vec![
          verify::Value::I64(nonce as i64),
          verify::Value::I32(i32::from_le_bytes([7; 4])),
          verify::Value::I32(0x1234_5678),
          verify::Value::I32(-1),
+         verify::Value::I32(i32::from(difficulty)),
       ]));
       expected.push((
          "seal",

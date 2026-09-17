@@ -34,10 +34,11 @@ unsafe impl Sync for Shared {}
 static STATE: Shared = Shared(UnsafeCell::new(State {
    buf:     [0; BUF_LEN],
    handoff: Handoff {
-      key:         [0; codec::KEY_LEN],
-      kind:        Kind::Sha256,
-      difficulty:  0,
-      blocks_log2: 0,
+      key:            [0; codec::KEY_LEN],
+      kind:           Kind::Sha256,
+      difficulty:     0,
+      blocks_log2:    0,
+      gpu_difficulty: 0,
    },
    pad:     [[0; 32]; PAD_BLOCKS],
 }));
@@ -53,7 +54,8 @@ pub extern "C" fn buf() -> *mut u8 {
 }
 
 /// Decode the handoff blob left in the buffer and remember it. Returns the
-/// difficulty, or -1 when the blob is malformed.
+/// difficulty in the low byte and the GPU difficulty above it, or -1 when
+/// the blob is malformed.
 #[unsafe(no_mangle)]
 pub extern "C" fn unpack(len: u32) -> i32 {
    let st = state();
@@ -63,9 +65,20 @@ pub extern "C" fn unpack(len: u32) -> i32 {
    if handoff.kind == Kind::Scratch && handoff.blocks_log2 > scratch::MAX_BLOCKS_LOG2 {
       return -1;
    }
-   let difficulty = i32::from(handoff.difficulty);
+   let levels = i32::from(handoff.difficulty) | (i32::from(handoff.gpu_difficulty) << 8);
    st.handoff = handoff;
-   difficulty
+   levels
+}
+
+/// Copy the challenge key into the buffer for a solver that runs outside
+/// the module, and return its length.
+#[unsafe(no_mangle)]
+pub extern "C" fn key() -> u32 {
+   let st = state();
+   for (slot, byte) in st.buf.iter_mut().zip(st.handoff.key) {
+      *slot = byte;
+   }
+   codec::KEY_LEN as u32
 }
 
 /// Try `count` nonces from `start`, returning the first that satisfies the
@@ -90,14 +103,15 @@ pub extern "C" fn solve(start: u64, count: u32) -> i64 {
 }
 
 /// Write the sealed solution into the buffer and return its length. The
-/// probe words are whatever the host observed about its environment.
+/// probe words are whatever the host observed about its environment, and
+/// `level` is the difficulty the nonce was found at.
 #[unsafe(no_mangle)]
-pub extern "C" fn seal(nonce: u64, iv: u32, probe_hi: u32, probe_lo: u32) -> u32 {
+pub extern "C" fn seal(nonce: u64, iv: u32, probe_hi: u32, probe_lo: u32, level: u32) -> u32 {
    let st = state();
    let solution = Solution {
       key: st.handoff.key,
       nonce,
-      difficulty: st.handoff.difficulty,
+      difficulty: level.min(32) as u8,
       probe: (u64::from(probe_hi) << 32) | u64::from(probe_lo),
    };
    let sealed = codec::pack_solution(iv.to_le_bytes(), &solution);

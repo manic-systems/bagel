@@ -79,10 +79,12 @@ impl ChallengeBinding {
 }
 
 struct PendingChallenge {
-   binding:  [u8; 32],
-   pass_key: ChallengeKey,
-   level:    u32,
-   expiry:   Instant,
+   binding:   [u8; 32],
+   pass_key:  ChallengeKey,
+   level:     u32,
+   /// The harder level a GPU solver may return instead.
+   gpu_level: Option<u32>,
+   expiry:    Instant,
 }
 
 #[derive(Default)]
@@ -137,6 +139,7 @@ impl PendingChallenges {
       binding: &ChallengeBinding,
       pass_key: ChallengeKey,
       level: u32,
+      gpu_level: Option<u32>,
       duration: Duration,
    ) -> Result<ChallengeKey, IssueError> {
       let rate = self.issuance.record(&binding.host, binding.network);
@@ -165,6 +168,7 @@ impl PendingChallenges {
          binding: binding.digest,
          pass_key,
          level,
+         gpu_level,
          expiry,
       });
       pending.expiries.insert((expiry, key));
@@ -196,7 +200,8 @@ impl PendingChallenges {
       let Entry::Occupied(entry) = pending.challenges.entry(*key) else {
          return None;
       };
-      if entry.get().binding != binding.digest || entry.get().level != level {
+      let offered = entry.get().level == level || entry.get().gpu_level == Some(level);
+      if entry.get().binding != binding.digest || !offered {
          return None;
       }
 

@@ -86,6 +86,8 @@ pub struct ConditionContext {
    pub census:           Option<CensusSnapshot>,
    /// Environment profile the solver sealed into the clearance token.
    pub probe:            Option<u64>,
+   /// Highest proof-of-work level among the token's passes.
+   pub pow_level:        Option<u32>,
    /// Census counts for this claim and probe profile.
    pub probe_census:     Option<CensusSnapshot>,
    /// Pre-computed network membership results: `network_name` -> bool.
@@ -254,6 +256,14 @@ impl ConditionContext {
       );
       scope.push_constant("probe", probe_map);
 
+      let mut pow_map = rhai::Map::new();
+      pow_map.insert("available".into(), Dynamic::from(self.pow_level.is_some()));
+      pow_map.insert(
+         "level".into(),
+         Dynamic::from(self.pow_level.map_or(0_i64, i64::from)),
+      );
+      scope.push_constant("pow", pow_map);
+
       let mut solves_map = rhai::Map::new();
       solves_map.insert("available".into(), Dynamic::from(self.solves.is_some()));
       solves_map.insert(
@@ -371,6 +381,7 @@ impl ConditionContext {
          census: None,
          probe: None,
          probe_census: None,
+         pow_level: None,
          network_results: HashMap::new(),
          rate: None,
          solves: None,

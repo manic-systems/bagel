@@ -352,6 +352,7 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       census_claim_networks = ctx.census.map(|snap| snap.claim_networks),
       census_pair_networks = ctx.census.map(|snap| snap.pair_networks),
       probe = ctx.probe.map(|probe| format!("{probe:016x}")),
+      pow_level = ctx.pow_level,
       census_probe_networks = ctx.probe_census.map(|snap| snap.pair_networks),
       fp_ja4 = ctx.fp.get("ja4"),
       fp_proxied = ctx.fp.get("proxied"),
@@ -436,6 +437,14 @@ fn request_context(
 
    let mut ctx = ConditionContext::from_request(req);
    host.clone_into(&mut ctx.host);
+   ctx.pow_level = challenge_state.token.as_ref().and_then(|token| {
+      token
+         .state
+         .values()
+         .filter(|pass| pass.ok && pass.level > 0)
+         .map(|pass| pass.level)
+         .max()
+   });
    ctx.probe = challenge_state.token.as_ref().and_then(|token| {
       token
          .state

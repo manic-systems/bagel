@@ -121,10 +121,11 @@ async fn background_pow_solves_on_the_live_page() {
    let handoff = unpack_handoff(&BASE64URL_NOPAD.decode(payload.as_bytes()).unwrap()).unwrap();
    assert_eq!(handoff.difficulty, 1);
    let pow = PowChallenge {
-      kind:        Kind::Sha256,
-      difficulty:  1,
-      blocks_log2: 0,
-      embed:       crate::template::Presentation::Hidden,
+      kind:           Kind::Sha256,
+      difficulty:     1,
+      blocks_log2:    0,
+      gpu_difficulty: None,
+      embed:          crate::template::Presentation::Hidden,
    };
    let nonce = (0_u64..1_000_000)
       .find(|&candidate| pow.verify(&handoff.key, candidate, 1))

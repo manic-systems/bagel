@@ -68,9 +68,22 @@ use crate::{
 
 /// A registered challenge instance.
 pub struct ChallengeRegistration {
-   pub class:    ChallengeClass,
-   pub duration: Duration,
-   pub runtime:  ChallengeRuntime,
+   pub class:        ChallengeClass,
+   pub duration:     Duration,
+   /// Token life for a pass at the GPU level, defaulting to `duration`.
+   pub gpu_duration: Option<Duration>,
+   pub runtime:      ChallengeRuntime,
+}
+
+impl ChallengeRegistration {
+   /// How long a pass sealed at `level` stays valid.
+   #[must_use]
+   pub fn duration_for(&self, level: u32) -> Duration {
+      match (&self.runtime, self.gpu_duration) {
+         (ChallengeRuntime::Pow(pow), Some(gpu)) if pow.reached_gpu(level) => gpu,
+         _ => self.duration,
+      }
+   }
 }
 
 const MAX_CHALLENGE_DURATION_SECS: u64 = 365 * 24 * 60 * 60;
@@ -160,6 +173,7 @@ impl ChallengeRegistry {
             )));
          }
          let duration = Duration::from_secs(cfg.duration_secs);
+         let mut gpu_duration = None;
          let (class, runtime) = match cfg.runtime.as_str() {
             "cookie" => {
                (
@@ -270,10 +284,40 @@ impl ChallengeRegistry {
                      )));
                   },
                };
+               let gpu_difficulty = cfg
+                  .parameters
+                  .get("gpu-difficulty")
+                  .map(|value| {
+                     value.parse::<u32>().map_err(|_| {
+                        error::Error::Config(format!(
+                           "challenge '{}': gpu-difficulty must be an integer",
+                           cfg.name
+                        ))
+                     })
+                  })
+                  .transpose()?;
+               gpu_duration = cfg
+                  .parameters
+                  .get("gpu-duration")
+                  .map(|value| {
+                     value
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|secs| (1..=MAX_CHALLENGE_DURATION_SECS).contains(secs))
+                        .map(Duration::from_secs)
+                        .ok_or_else(|| {
+                           error::Error::Config(format!(
+                              "challenge '{}': gpu-duration must be between 1 second and 365 days",
+                              cfg.name
+                           ))
+                        })
+                  })
+                  .transpose()?;
                let pow = PowChallenge {
                   kind,
                   difficulty,
                   blocks_log2,
+                  gpu_difficulty,
                   embed,
                };
                if !pow.difficulty_range().contains(&difficulty) {
@@ -282,6 +326,26 @@ impl ChallengeRegistry {
                      cfg.name,
                      pow.difficulty_range().start(),
                      pow.difficulty_range().end()
+                  )));
+               }
+               if let Some(gpu) = gpu_difficulty {
+                  if kind != Kind::Sha256 {
+                     return Err(error::Error::Config(format!(
+                        "challenge '{}': gpu-difficulty needs runtime pow-sha256",
+                        cfg.name
+                     )));
+                  }
+                  if gpu <= difficulty || !pow.difficulty_range().contains(&gpu) {
+                     return Err(error::Error::Config(format!(
+                        "challenge '{}': gpu-difficulty must be above difficulty and at most {}",
+                        cfg.name,
+                        pow.difficulty_range().end()
+                     )));
+                  }
+               } else if gpu_duration.is_some() {
+                  return Err(error::Error::Config(format!(
+                     "challenge '{}': gpu-duration needs gpu-difficulty",
+                     cfg.name
                   )));
                }
                (ChallengeClass::Blocking, ChallengeRuntime::Pow(pow))
@@ -298,6 +362,7 @@ impl ChallengeRegistry {
             .insert(cfg.name.clone(), ChallengeRegistration {
                class,
                duration,
+               gpu_duration,
                runtime,
             })
             .is_some()

@@ -465,10 +465,15 @@ async fn evaluate_challenge_action(
             eval.user_agent.as_bytes(),
             eval.state.policy.revision,
          );
+         let gpu_level = match reg.runtime {
+            ChallengeRuntime::Pow(ref pow) => pow.gpu_level(level),
+            _ => None,
+         };
          match eval.state.runtime.pending_challenges.issue(
             &binding,
             challenge_key,
             level,
+            gpu_level,
             reg.duration,
          ) {
             Ok(key) => key,

@@ -52,11 +52,13 @@ const RUNTIME: &str = "/__bagel/static/runtime.mjs";
 /// scratchpad walk.
 #[derive(Clone, Copy)]
 pub struct PowChallenge {
-   pub kind:        Kind,
-   pub difficulty:  u32,
-   pub blocks_log2: u8,
+   pub kind:           Kind,
+   pub difficulty:     u32,
+   pub blocks_log2:    u8,
+   /// Harder level offered to solvers with a GPU, earning the longer token.
+   pub gpu_difficulty: Option<u32>,
    /// How the solver appears when spliced into a proxied page.
-   pub embed:       Presentation,
+   pub embed:          Presentation,
 }
 
 impl PowChallenge {
@@ -74,6 +76,19 @@ impl PowChallenge {
       ctx.difficulty.unwrap_or(self.difficulty)
    }
 
+   /// The GPU level offered alongside `level`, when it is still the harder
+   /// of the two.
+   #[must_use]
+   pub fn gpu_level(&self, level: u32) -> Option<u32> {
+      self.gpu_difficulty.filter(|&gpu| gpu > level)
+   }
+
+   /// Whether a pass at `level` earned the GPU tier.
+   #[must_use]
+   pub fn reached_gpu(&self, level: u32) -> bool {
+      self.gpu_difficulty.is_some_and(|gpu| level >= gpu)
+   }
+
    /// `background` settles in place. Embeds qualify, while interstitials
    /// reload.
    fn widget(
@@ -84,11 +99,15 @@ impl PowChallenge {
    ) -> Widget {
       let mut iv = [0_u8; 4];
       let _ = SystemRandom::new().fill(&mut iv);
+      let level = self.level(ctx);
       let handoff = Handoff {
-         key:         *ctx.challenge_key,
-         kind:        self.kind,
-         difficulty:  u8::try_from(self.level(ctx)).expect("difficulty is validated to fit"),
-         blocks_log2: self.blocks_log2,
+         key:            *ctx.challenge_key,
+         kind:           self.kind,
+         difficulty:     u8::try_from(level).expect("difficulty is validated to fit"),
+         blocks_log2:    self.blocks_log2,
+         gpu_difficulty: self.gpu_level(level).map_or(0, |gpu| {
+            u8::try_from(gpu).expect("gpu difficulty is validated to fit")
+         }),
       };
       let loader = LoaderData {
          payload: BASE64URL_NOPAD.encode(&pack_handoff(iv, &handoff)),
@@ -171,10 +190,11 @@ mod tests {
    #[test]
    fn pow_verify_big_endian() {
       let pow = PowChallenge {
-         kind:        Kind::Sha256,
-         difficulty:  1,
-         blocks_log2: 0,
-         embed:       Presentation::Hidden,
+         kind:           Kind::Sha256,
+         difficulty:     1,
+         blocks_log2:    0,
+         gpu_difficulty: None,
+         embed:          Presentation::Hidden,
       };
       let key = [0u8; 32];
 

@@ -1,4 +1,5 @@
 const MODULE = "/__bagel/static/solver.wasm";
+const GPU = "/__bagel/static/gpu.mjs";
 const SLICE_MS = 40;
 
 const decode = (text) =>
@@ -63,35 +64,65 @@ const probe = () => {
   return [hi >>> 0, lo >>> 0];
 };
 
+const progress = (started) =>
+  self.postMessage({ type: "progress", elapsed: performance.now() - started });
+
+async function solveOnGpu(keyBytes, difficulty, started) {
+  if (!navigator.gpu) return null;
+  try {
+    const { createGpuSolver } = await import(GPU);
+    const solver = await createGpuSolver();
+    if (!solver) return null;
+    return await solver.solve(keyBytes, difficulty, () => progress(started));
+  } catch {
+    return null;
+  }
+}
+
+async function solveOnCpu(solve, started) {
+  let nonce = 0n;
+  let found = -1n;
+  let batch = 16;
+  while (found < 0n) {
+    const before = performance.now();
+    found = solve(nonce, batch);
+    nonce += BigInt(batch);
+    const took = Math.max(performance.now() - before, 1);
+    batch = Math.max(1, Math.min(1 << 20, Math.round((batch * SLICE_MS) / took)));
+    progress(started);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return found;
+}
+
 self.onmessage = async ({ data }) => {
   self.onmessage = null;
 
   try {
     const handoff = decode(data);
     const { instance } = await WebAssembly.instantiateStreaming(fetch(MODULE));
-    const { memory, buf, unpack, solve, seal } = instance.exports;
+    const { memory, buf, unpack, key, solve, seal } = instance.exports;
     const base = buf();
     const view = () => new Uint8Array(memory.buffer);
     view().set(handoff, base);
-    if (unpack(handoff.length) < 0) throw new Error("Invalid challenge handoff");
+    const levels = unpack(handoff.length);
+    if (levels < 0) throw new Error("Invalid challenge handoff");
+    const cpuLevel = levels & 0xff;
+    const gpuLevel = levels >>> 8;
 
     const started = performance.now();
-    let nonce = 0n;
-    let found = -1n;
-    let batch = 16;
-    while (found < 0n) {
-      const before = performance.now();
-      found = solve(nonce, batch);
-      nonce += BigInt(batch);
-      const took = Math.max(performance.now() - before, 1);
-      batch = Math.max(1, Math.min(1 << 20, Math.round((batch * SLICE_MS) / took)));
-      self.postMessage({ type: "progress", elapsed: performance.now() - started });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    let level = cpuLevel;
+    let found = null;
+    if (gpuLevel > 0) {
+      const keyBytes = view().slice(base, base + key());
+      found = await solveOnGpu(keyBytes, gpuLevel, started);
+      if (found !== null) level = gpuLevel;
     }
+    if (found === null) found = await solveOnCpu(solve, started);
 
     const iv = crypto.getRandomValues(new Uint32Array(1))[0];
     const [hi, lo] = probe();
-    const length = seal(found, iv, hi, lo);
+    const length = seal(found, iv, hi, lo, level);
     self.postMessage({ type: "proof", proof: encode(view().subarray(base, base + length)) });
   } catch {
     self.postMessage({ type: "error" });

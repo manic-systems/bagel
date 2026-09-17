@@ -69,6 +69,7 @@ const BEACON_SVG: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\
 const WIDGET_CSS: &str = include_str!("../assets/widget.css");
 const RUNTIME_MJS: &str = include_str!("../assets/challenge/runtime.mjs");
 const WORKER_MJS: &str = include_str!("../assets/challenge/worker.mjs");
+const GPU_MJS: &str = include_str!("../assets/challenge/gpu.mjs");
 const SOLVER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/solver.wasm"));
 
 /// The endpoints bagel answers itself, under a prefix no origin owns.
@@ -76,6 +77,7 @@ enum Internal {
    Css,
    Runtime,
    Worker,
+   Gpu,
    Solver,
    Beacon(String),
    Verify(String),
@@ -88,6 +90,7 @@ fn internal_route(path: &str) -> Option<Internal> {
       "/__bagel/static/widget.css" => return Some(Internal::Css),
       "/__bagel/static/runtime.mjs" => return Some(Internal::Runtime),
       "/__bagel/static/worker.mjs" => return Some(Internal::Worker),
+      "/__bagel/static/gpu.mjs" => return Some(Internal::Gpu),
       "/__bagel/static/solver.wasm" => return Some(Internal::Solver),
       _ => {},
    }
@@ -126,11 +129,15 @@ pub async fn dispatch(shared: &SharedState, addr: SocketAddr, req: Request) -> R
             "application/javascript; charset=utf-8",
          )
       },
+      Internal::Gpu if readable => {
+         asset(GPU_MJS.as_bytes(), "application/javascript; charset=utf-8")
+      },
       Internal::Solver if readable => asset(SOLVER_WASM, "application/wasm"),
       Internal::Beacon(id) if readable => handle_beacon(shared, &id, &req),
       Internal::Css
       | Internal::Runtime
       | Internal::Worker
+      | Internal::Gpu
       | Internal::Solver
       | Internal::Beacon(_) => method_not_allowed("GET,HEAD"),
       Internal::Verify(name) if readable => handle_verify(shared, &name, &req),
@@ -504,7 +511,7 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
       &challenge_key,
       result,
       level,
-      reg.duration,
+      reg.duration_for(level),
    ) {
       Ok(cookie) => cookie,
       Err(resp) => return resp,

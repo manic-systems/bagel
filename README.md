@@ -143,6 +143,19 @@ suspicious score buys a harder proof without a second challenge. A pass is
 sealed with the difficulty it was verified at, and a gate accepts any pass at
 or above the level it asks for.
 
+`pow-sha256` may also carry `gpu-difficulty=N` above `difficulty` and an
+optional `gpu-duration` in seconds. The handoff then offers both levels. A
+browser with WebGPU searches the harder one in a compute shader from
+`/__bagel/static/gpu.mjs`, seals the pass at that level and earns
+`gpu-duration`, while everything else solves `difficulty` in wasm and earns
+`duration`. Measured on the first-cut shader, a desktop GPU reaches about 460
+million hashes a second, a recent phone 120 million, Chrome's software Vulkan
+on a GPU-less server 10 million, and the single-threaded wasm path under one
+million, so difficulty 26 is half a second on a phone and seven seconds on a
+CPU farm running headless Chrome. Set `gpu-difficulty` for the phone, keep
+`difficulty` where the wasm path already was, and read `pow["level"]` in
+policy to see which tier a token holds.
+
 Each challenge gets a random key bound to its session and request identity.
 Redemption consumes it once, so replaying a proof cannot issue another pass.
 

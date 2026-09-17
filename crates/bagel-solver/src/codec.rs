@@ -6,7 +6,7 @@
 
 pub const IV_LEN: usize = 4;
 pub const KEY_LEN: usize = 32;
-pub const HANDOFF_LEN: usize = IV_LEN + KEY_LEN + 3;
+pub const HANDOFF_LEN: usize = IV_LEN + KEY_LEN + 4;
 pub const SOLUTION_LEN: usize = IV_LEN + KEY_LEN + 17;
 
 /// Which proof the module must produce.
@@ -37,11 +37,13 @@ impl Kind {
 }
 
 pub struct Handoff {
-   pub key:         [u8; KEY_LEN],
-   pub kind:        Kind,
-   pub difficulty:  u8,
+   pub key:            [u8; KEY_LEN],
+   pub kind:           Kind,
+   pub difficulty:     u8,
    /// Scratchpad size as a power of two block count, zero for SHA-256.
-   pub blocks_log2: u8,
+   pub blocks_log2:    u8,
+   /// Harder level a GPU solver may prove instead, zero when not offered.
+   pub gpu_difficulty: u8,
 }
 
 pub struct Solution {
@@ -65,11 +67,16 @@ fn keystream<'a>(iv: [u8; IV_LEN], data: impl IntoIterator<Item = &'a mut u8>) {
 #[must_use]
 pub fn pack_handoff(iv: [u8; IV_LEN], handoff: &Handoff) -> [u8; HANDOFF_LEN] {
    const _: () = assert!(
-      IV_LEN + KEY_LEN + 3 == HANDOFF_LEN,
-      "pack_handoff writes three tail bytes"
+      IV_LEN + KEY_LEN + 4 == HANDOFF_LEN,
+      "pack_handoff writes four tail bytes"
    );
    let mut out = [0_u8; HANDOFF_LEN];
-   let tail = [handoff.kind.tag(), handoff.difficulty, handoff.blocks_log2];
+   let tail = [
+      handoff.kind.tag(),
+      handoff.difficulty,
+      handoff.blocks_log2,
+      handoff.gpu_difficulty,
+   ];
    for (slot, byte) in out
       .iter_mut()
       .zip(iv.into_iter().chain(handoff.key).chain(tail))
@@ -90,10 +97,11 @@ pub fn unpack_handoff(blob: &[u8]) -> Option<Handoff> {
    }
    keystream(iv, &mut body);
    Some(Handoff {
-      key:         *body.first_chunk::<KEY_LEN>()?,
-      kind:        Kind::from_tag(body[KEY_LEN])?,
-      difficulty:  body[KEY_LEN + 1],
-      blocks_log2: body[KEY_LEN + 2],
+      key:            *body.first_chunk::<KEY_LEN>()?,
+      kind:           Kind::from_tag(body[KEY_LEN])?,
+      difficulty:     body[KEY_LEN + 1],
+      blocks_log2:    body[KEY_LEN + 2],
+      gpu_difficulty: body[KEY_LEN + 3],
    })
 }
 

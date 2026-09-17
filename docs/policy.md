@@ -103,6 +103,7 @@ The rest are maps.
 | `solves`   | `available`, `10m`, `60m`       | Proof-of-work passes for this host and source network                      |
 | `visit`    | Five keys, listed below         | What this clearance session has done with the pages it was served          |
 | `probe`    | `available`, `profile`          | Environment profile the solver sealed into the clearance token             |
+| `pow`      | `available`, `level`            | Highest proof-of-work level among the token's passes                       |
 | `poison`   | `returned`                      | True when a maze on this host holds an active entry for the source network |
 | `lease`    | `active`                        | True while the client address sits inside an active defense lease          |
 | `crawler`  | `verified`                      | True when forward-confirmed reverse DNS matched a configured provider      |
@@ -374,6 +375,21 @@ networks presenting this claim produced this exact profile. A stubbed
 environment produces a profile no real browser has, and a copied real
 profile ages out as browsers update, without a rule anyone can read out of
 the code and satisfy.
+
+## Proof-of-work tiers
+
+`pow["level"]` is the highest difficulty among the token's proof-of-work
+passes and `pow["available"]` is false without one. A `pow-sha256` challenge
+with `gpu-difficulty` offers two levels at once, and the level a token holds
+says which path solved it. A client without WebGPU, which includes Linux
+Firefox and Vanadium today, lands on the wasm path at `difficulty` and gets
+`duration`, so a network that keeps showing up at the base level while
+claiming a desktop Chrome is worth a look, and a network solving the base
+level many times an hour is a farm hiding on the cheap path.
+
+```kdl
+signal "cpu-path" weight=20 condition=(rhai)#"pow["available"] && pow["level"] < 26"#
+```
 
 ## Visit shape and render beacons
 
@@ -707,6 +723,7 @@ fields.
 - visit_documents
 - visit_assets
 - probe
+- pow_level
 - census_probe_networks
 - candidate_threshold
 - candidate_action
