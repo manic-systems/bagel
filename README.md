@@ -29,6 +29,63 @@ go through the hole and reach the backend untouched.
 `enforcement mode="required"` is an everything bagel. `mode="observe"` is a plain
 one that only watches.
 
+## Quickstart
+
+Build it with `nix build` in the checkout, or `cargo build --release` with
+`lld` and a `wasm32v1-none` target installed for the solver. Then print the
+starter config and run it.
+
+```sh
+bagel config example > bagel.kdl
+bagel-daemon --config bagel.kdl --check-config
+bagel-daemon --config bagel.kdl --disable-firewall
+```
+
+The starter listens on `:8080`, proxies everything to `127.0.0.1:8081`,
+smears anyone asking for `/.env` and counts those hits toward a drop. Point
+`backends` at your app and set `client-ip-header` and `trusted-proxies` to
+whatever sits in front of bagel, otherwise every visitor looks like the proxy.
+`--disable-firewall` keeps bans in memory so you can try it without
+`CAP_NET_ADMIN`. `curl localhost:8080/.env` gets a deceptive error page and
+`localhost:9100/metrics` shows the rule that fired.
+
+To gate something, add a challenge and a rule that uses it.
+
+```kdl
+policy {
+    challenges {
+        challenge "pow" runtime="pow-sha256" difficulty=16 duration=86400
+    }
+    rules {
+        rule "probe" condition=#"path == "/.env""# action="smear"
+        rule "tools" condition=#"user_agent.starts_with_any(["curl/", "python-requests/"])"# action="challenge" {
+            challenges "pow"
+        }
+    }
+}
+```
+
+A curl on `/` now gets the challenge page and a browser solves it once, then
+carries a day-long cookie. Challenges and mazes sign their tokens, so generate
+a key once with `bagel-daemon --generate-key`, keep it out of the config, and
+pass it with `--key-seed-file`. Without one bagel makes a fresh key at every
+start and every outstanding cookie dies with the restart.
+
+On NixOS the flake exports `nixosModules.bagel`.
+
+```nix
+services.bagel = {
+  enable = true;
+  configFile = ./bagel.kdl;
+  keySeedFile = config.age.secrets.bagel-key.path;
+};
+```
+
+The module enables nftables, grants `CAP_NET_ADMIN` when `enforcementMode` is
+`required`, which has to match the `enforcement` node in the file since the
+module can't read KDL, and validates the config at build time so a bad file
+fails the system build rather than the service.
+
 ## Configuration
 
 One KDL file configures both planes, web nodes at the top level and the defense
