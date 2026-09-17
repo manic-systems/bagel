@@ -16,6 +16,7 @@ use crate::{
       CaptureError,
    },
    hex_encode,
+   tls::reference,
 };
 
 pub const ORIGIN_TOKEN_HEADER: &str = "x-bagel-origin-token";
@@ -182,6 +183,13 @@ impl CloudflareFingerprint {
       })
    }
 
+   /// Hex of the advertised cipher list hash, the one edge field stable
+   /// across a browser's connections apart from its GREASE slot.
+   #[must_use]
+   pub fn ciphers_hex(&self) -> Option<String> {
+      self.ciphers.as_ref().map(|hash| hex_encode(&hash.0))
+   }
+
    pub fn policy_fields(&self, fields: &mut HashMap<String, String>) {
       let complete =
          self.ciphers.is_some() && self.extensions.is_some() && self.hello_length.is_some();
@@ -209,6 +217,15 @@ impl CloudflareFingerprint {
          if let Some(value) = value {
             fields.insert(name.to_owned(), value);
          }
+      }
+      if let Some(known) = self
+         .ciphers
+         .as_ref()
+         .and_then(|hash| reference::lookup(&hash.0))
+      {
+         fields.insert("edge_family".to_owned(), known.family.to_owned());
+         fields.insert("edge_list".to_owned(), known.list.to_owned());
+         fields.insert("edge_grease".to_owned(), known.grease.to_string());
       }
    }
 }

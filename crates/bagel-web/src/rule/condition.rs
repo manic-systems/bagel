@@ -29,10 +29,12 @@ use rhai::{
 
 use crate::{
    body::Body,
+   claim::Claim,
    fingerprint::Capture,
    http2::Http2Fingerprint,
    net::{
       IpNetTrie,
+      census::CensusSnapshot,
       rate::RateSnapshot,
    },
    tls::TlsFingerprint,
@@ -74,10 +76,20 @@ pub struct ConditionContext {
    pub http_version:     String,
    pub headers:          HashMap<String, String>,
    pub fp:               HashMap<String, String>,
+   /// Stable transport identity behind `fp`, when any source supplied one.
+   pub fp_identity:      Option<String>,
+   /// Browser the user agent claims to be, `None` for tools and crawlers.
+   pub claim:            Option<Claim>,
+   /// Census counts for this claim and identity, `None` when either is
+   /// missing or the census is saturated.
+   pub census:           Option<CensusSnapshot>,
    /// Pre-computed network membership results: `network_name` -> bool.
    pub network_results:  HashMap<String, bool>,
    /// Normal rate snapshot, `None` when no client network resolved.
    pub rate:             Option<RateSnapshot>,
+   /// Challenge passes by this host and source network in minute buckets,
+   /// `None` when no client network resolved.
+   pub solves:           Option<RateSnapshot>,
    pub poison_returned:  bool,
    pub crawler_verified: bool,
    pub lease_active:     bool,
@@ -130,9 +142,9 @@ impl ConditionContext {
 
       let (rate_second, rate_ten_seconds, rate_minute) = self.rate.map_or((0, 0, 0), |snap| {
          (
-            i64::from(snap.last_1s),
-            i64::from(snap.last_10s),
-            i64::from(snap.last_60s),
+            i64::from(snap.last_1),
+            i64::from(snap.last_10),
+            i64::from(snap.last_60),
          )
       });
       let mut rate_map = rhai::Map::new();
@@ -141,6 +153,78 @@ impl ConditionContext {
       rate_map.insert("10s".into(), Dynamic::from(rate_ten_seconds));
       rate_map.insert("60s".into(), Dynamic::from(rate_minute));
       scope.push_constant("rate", rate_map);
+
+      let mut claim_map = rhai::Map::new();
+      claim_map.insert("browser".into(), Dynamic::from(self.claim.is_some()));
+      claim_map.insert(
+         "family".into(),
+         Dynamic::from(
+            self
+               .claim
+               .map_or_else(String::new, |claim| claim.family.to_string()),
+         ),
+      );
+      claim_map.insert(
+         "major".into(),
+         Dynamic::from(self.claim.map_or(0_i64, |claim| i64::from(claim.major))),
+      );
+      claim_map.insert(
+         "platform".into(),
+         Dynamic::from(
+            self
+               .claim
+               .map_or_else(String::new, |claim| claim.platform.to_string()),
+         ),
+      );
+      claim_map.insert(
+         "mobile".into(),
+         Dynamic::from(self.claim.is_some_and(|claim| claim.mobile)),
+      );
+      claim_map.insert(
+         "stack".into(),
+         Dynamic::from(self.claim.map_or("", |claim| claim.stack()).to_owned()),
+      );
+      scope.push_constant("claim", claim_map);
+
+      let mut census_map = rhai::Map::new();
+      census_map.insert("available".into(), Dynamic::from(self.census.is_some()));
+      census_map.insert(
+         "claim_networks".into(),
+         Dynamic::from(
+            self
+               .census
+               .map_or(0_i64, |snap| i64::from(snap.claim_networks)),
+         ),
+      );
+      census_map.insert(
+         "pair_networks".into(),
+         Dynamic::from(
+            self
+               .census
+               .map_or(0_i64, |snap| i64::from(snap.pair_networks)),
+         ),
+      );
+      census_map.insert(
+         "pair_permille".into(),
+         Dynamic::from(
+            self
+               .census
+               .map_or(0_i64, |snap| i64::from(snap.pair_permille())),
+         ),
+      );
+      scope.push_constant("census", census_map);
+
+      let mut solves_map = rhai::Map::new();
+      solves_map.insert("available".into(), Dynamic::from(self.solves.is_some()));
+      solves_map.insert(
+         "10m".into(),
+         Dynamic::from(self.solves.map_or(0_i64, |snap| i64::from(snap.last_10))),
+      );
+      solves_map.insert(
+         "60m".into(),
+         Dynamic::from(self.solves.map_or(0_i64, |snap| i64::from(snap.last_60))),
+      );
+      scope.push_constant("solves", solves_map);
 
       let mut poison_map = rhai::Map::new();
       poison_map.insert("returned".into(), Dynamic::from(self.poison_returned));
@@ -203,7 +287,9 @@ impl ConditionContext {
          _ => "unknown",
       };
 
-      let mut fp = req.extensions().get::<TlsFingerprint>().map_or_else(
+      let tls = req.extensions().get::<TlsFingerprint>();
+      let fp_identity = tls.and_then(TlsFingerprint::identity);
+      let mut fp = tls.map_or_else(
          || TlsFingerprint::default().policy_fields(),
          TlsFingerprint::policy_fields,
       );
@@ -222,14 +308,18 @@ impl ConditionContext {
          method: req.method().as_str().to_owned(),
          path: req.uri().path().to_owned(),
          query: req.uri().query().unwrap_or("").to_owned(),
+         claim: Claim::parse(&user_agent),
          user_agent,
          remote_address,
          remote_ip,
          http_version: http_version.to_owned(),
          headers,
          fp,
+         fp_identity,
+         census: None,
          network_results: HashMap::new(),
          rate: None,
+         solves: None,
          poison_returned: false,
          crawler_verified: false,
          lease_active: false,

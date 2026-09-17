@@ -6,7 +6,10 @@ use std::{
       Hasher as _,
    },
    sync::Mutex,
-   time::Instant,
+   time::{
+      Duration,
+      Instant,
+   },
 };
 
 use crate::SourceNetwork;
@@ -18,13 +21,13 @@ pub const MAX_CAPACITY: usize = 1_048_576;
 
 const WINDOW: usize = 60;
 
-/// Immutable per-request view of the normal rate counters, taken after the
-/// current request has been counted.
+/// Immutable per-request view of the counters over the last one, ten and
+/// sixty buckets, taken after the current event has been counted.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RateSnapshot {
-   pub last_1s:  u32,
-   pub last_10s: u32,
-   pub last_60s: u32,
+   pub last_1:  u32,
+   pub last_10: u32,
+   pub last_60: u32,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -46,27 +49,43 @@ struct Shard {
    used:    u64,
 }
 
-/// Sharded LRU tracker of per-key request counts over sixty one-second
-/// buckets of monotonic time. Only requests entering ordinary policy
-/// evaluation are recorded here.
+/// Sharded LRU tracker of per-key event counts over sixty buckets of
+/// monotonic time. The request tracker uses one-second buckets and only
+/// records requests entering ordinary policy evaluation.
 pub struct RateTracker {
    shards:         Vec<Mutex<Shard>>,
    shard_capacity: usize,
    capacity:       usize,
+   bucket:         Duration,
    epoch:          Instant,
 }
 
 impl RateTracker {
    #[must_use]
    pub fn new(capacity: usize) -> Self {
+      Self::with_bucket(capacity, Duration::from_secs(1))
+   }
+
+   #[must_use]
+   pub fn with_bucket(capacity: usize, bucket: Duration) -> Self {
       Self {
          shards: std::iter::repeat_with(|| Mutex::new(Shard::default()))
             .take(SHARD_COUNT)
             .collect(),
          shard_capacity: capacity.div_ceil(SHARD_COUNT).max(1),
          capacity,
+         bucket,
          epoch: Instant::now(),
       }
+   }
+
+   fn tick(&self) -> u64 {
+      self
+         .epoch
+         .elapsed()
+         .as_nanos()
+         .checked_div(self.bucket.as_nanos())
+         .unwrap_or(0) as u64
    }
 
    #[must_use]
@@ -74,10 +93,59 @@ impl RateTracker {
       self.capacity
    }
 
-   /// Count the current request and return the counts including it.
+   /// Count the current event and return the counts including it.
    #[must_use]
    pub fn record(&self, host: &str, network: SourceNetwork) -> RateSnapshot {
-      self.record_at(host, network, self.epoch.elapsed().as_secs())
+      self.record_at(host, network, self.tick())
+   }
+
+   /// Read the counts for a key without recording anything. Absent keys read
+   /// as zero, since nothing happened in the window.
+   #[must_use]
+   pub fn peek(&self, host: &str, network: SourceNetwork) -> RateSnapshot {
+      self.peek_at(host, network, self.tick())
+   }
+
+   #[must_use]
+   pub fn peek_at(&self, host: &str, network: SourceNetwork, tick: u64) -> RateSnapshot {
+      let key = RateKey {
+         host: host.to_owned(),
+         network,
+      };
+      let shard = self
+         .shards
+         .get(Self::shard_index(&key))
+         .expect("shard index is bounded by SHARD_COUNT")
+         .lock()
+         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      let Some(entry) = shard.entries.get(&key) else {
+         return RateSnapshot {
+            last_1:  0,
+            last_10: 0,
+            last_60: 0,
+         };
+      };
+      let stale = tick.saturating_sub(entry.last_tick);
+      let sum = |span: u64| {
+         (stale..span.min(tick + 1))
+            .map(|offset| entry.buckets[((tick + WINDOW as u64 - offset) % WINDOW as u64) as usize])
+            .fold(0_u32, u32::saturating_add)
+      };
+      RateSnapshot {
+         last_1:  if stale == 0 {
+            entry.buckets[(tick % WINDOW as u64) as usize]
+         } else {
+            0
+         },
+         last_10: sum(10),
+         last_60: sum(60),
+      }
+   }
+
+   fn shard_index(key: &RateKey) -> usize {
+      let mut hasher = DefaultHasher::new();
+      key.hash(&mut hasher);
+      (hasher.finish() as usize) % SHARD_COUNT
    }
 
    #[must_use]
@@ -87,11 +155,10 @@ impl RateTracker {
          network,
       };
 
-      let mut hasher = DefaultHasher::new();
-      key.hash(&mut hasher);
-      let shard = &self.shards[(hasher.finish() as usize) % SHARD_COUNT];
-
-      let mut shard = shard
+      let mut shard = self
+         .shards
+         .get(Self::shard_index(&key))
+         .expect("shard index is bounded by SHARD_COUNT")
          .lock()
          .unwrap_or_else(std::sync::PoisonError::into_inner);
       shard.used += 1;
@@ -128,9 +195,9 @@ impl RateTracker {
       };
 
       RateSnapshot {
-         last_1s:  entry.buckets[current],
-         last_10s: sum(10),
-         last_60s: sum(60),
+         last_1:  entry.buckets[current],
+         last_10: sum(10),
+         last_60: sum(60),
       }
    }
 
@@ -186,17 +253,17 @@ mod tests {
          let _ = tracker.record_at("example.test", net(0), tick);
       }
       let snap = tracker.record_at("example.test", net(0), 30);
-      assert_eq!(snap.last_1s, 1);
-      assert_eq!(snap.last_10s, 10);
-      assert_eq!(snap.last_60s, 31);
+      assert_eq!(snap.last_1, 1);
+      assert_eq!(snap.last_10, 10);
+      assert_eq!(snap.last_60, 31);
 
       let snap = tracker.record_at("example.test", net(0), 89);
-      assert_eq!(snap.last_1s, 1);
-      assert_eq!(snap.last_10s, 1);
-      assert_eq!(snap.last_60s, 2);
+      assert_eq!(snap.last_1, 1);
+      assert_eq!(snap.last_10, 1);
+      assert_eq!(snap.last_60, 2);
 
       let snap = tracker.record_at("example.test", net(0), 200);
-      assert_eq!(snap.last_60s, 1);
+      assert_eq!(snap.last_60, 1);
    }
 
    #[test]
@@ -215,8 +282,8 @@ mod tests {
          let _ = tracker.record_at("example.test", net(0), 100);
       }
       let snap = tracker.record_at("example.test", net(1), 100);
-      assert_eq!(snap.last_60s, 1);
+      assert_eq!(snap.last_60, 1);
       let snap = tracker.record_at("other.test", net(0), 100);
-      assert_eq!(snap.last_60s, 1);
+      assert_eq!(snap.last_60, 1);
    }
 }

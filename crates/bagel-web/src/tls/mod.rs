@@ -1,6 +1,7 @@
 pub mod cloudflare;
 pub mod fingerprint;
 pub mod peek;
+pub mod reference;
 
 #[cfg(feature = "acme")] pub mod acme;
 

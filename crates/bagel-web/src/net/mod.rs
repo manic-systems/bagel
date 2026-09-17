@@ -1,3 +1,4 @@
+pub mod census;
 pub mod decay_map;
 pub mod loader;
 pub mod radb;

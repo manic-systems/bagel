@@ -98,6 +98,9 @@ The rest are maps.
 | `fp`       | Listed below                    | TLS and HTTP/2 fingerprints, capture status and source                    |
 | `networks` | Configured network name         | True when the client IP falls inside that network                          |
 | `rate`     | `available`, `1s`, `10s`, `60s` | Normal request counts for this host and source network                     |
+| `claim`    | Five keys, listed below         | The browser the user agent claims to be                                    |
+| `census`   | Four keys, listed below         | How common this claim and transport fingerprint pairing is                 |
+| `solves`   | `available`, `10m`, `60m`       | Proof-of-work passes for this host and source network                      |
 | `poison`   | `returned`                      | True when a maze on this host holds an active entry for the source network |
 | `lease`    | `active`                        | True while the client address sits inside an active defense lease          |
 | `crawler`  | `verified`                      | True when forward-confirmed reverse DNS matched a configured provider      |
@@ -191,10 +194,20 @@ back to the nginx format.
 | `edge_ciphers_sha1` | Hexadecimal SHA-1 of the advertised cipher list |
 | `edge_extensions_sha1` | Hexadecimal SHA-1 of the advertised extensions |
 | `edge_hello_length` | ClientHello length as a decimal string |
+| `edge_family` | Stack behind a recognised cipher list, `chromium`, `firefox`, `safari` or `okhttp` |
+| `edge_list` | Which of that stack's lists matched, such as `chromium`, `chromium-tls13` or `firefox-legacy` |
+| `edge_grease` | `true` when the list carried a GREASE cipher in front |
 
-These observations do not reconstruct JA4. Raw handshake hashes can vary with
-extension ordering and GREASE, so collect representative samples before using
-them in policy. Missing or invalid metadata is visible through `edge_status`
+These observations do not reconstruct JA4. The extension hash and hello
+length vary per connection because browsers shuffle extension order, so treat
+them as noise. The cipher hash is stable per stack apart from the GREASE
+value BoringSSL and Apple prepend, and bagel resolves it against a built-in
+table of the cipher lists real browsers send, following the profiles
+wreq-util maintains. `edge_family`, `edge_list` and `edge_grease` appear only
+on a match. A stack that copies a browser's list without its GREASE slot, or
+that never varies it, is visible through `edge_grease`. The same emulation
+library can reproduce these hashes exactly, so a match proves the list and
+not the browser. Missing or invalid metadata is visible through `edge_status`
 and does not automatically deny a request.
 
 Decision logs include `fp_source`, `fp_tls_status`, `fp_proxied_status`,
@@ -262,6 +275,86 @@ burst hint corroborated by another signal.
 The default is 64 shards and an LRU capacity of 65,536 keys. The configured
 capacity must fall between 1,024 and 1,048,576, and changing it on reload
 rebuilds the tracker.
+
+## Claims and the census
+
+A request carries two accounts of what it is. The user agent is the claim, and
+the transport fingerprint is what the network stack actually did. Bagel parses
+the claim into `claim` and learns, from its own traffic, which fingerprints
+each claim presents, so policy can score a request whose two accounts
+disagree without anyone curating a fingerprint list.
+
+```
+claim["browser"]
+claim["family"]
+claim["major"]
+claim["platform"]
+claim["mobile"]
+```
+
+`browser` is true when the user agent parses as a browser, and the other keys
+are empty or zero otherwise. `family` is one of `chrome`, `edge`, `firefox`,
+`safari`, `opera`, `samsung` or `yandex`, `major` is the integer major
+version, and `platform` is `windows`, `macos`, `ios`, `android`, `chromeos`,
+`linux` or `unknown`. `stack` names the TLS stack the claim implies in the
+same terms as `fp["edge_family"]`, so `chromium` for Chrome, Edge, Opera,
+Samsung and Yandex, `firefox` for Firefox, and `safari` for Safari and for
+every browser on iOS, where Apple's stack handles TLS regardless of brand.
+Tools, crawlers and empty user agents make no claim.
+
+```
+census["available"]
+census["claim_networks"]
+census["pair_networks"]
+census["pair_permille"]
+```
+
+The census keys on `family/major/platform` and on the most specific stable
+transport identity available, which is the native JA4 when bagel terminates
+TLS, otherwise the proxy digest, otherwise the Cloudflare cipher list hash.
+It counts distinct source networks over the current and previous four-hour
+generation. `claim_networks` is how many networks presented this claim,
+`pair_networks` is how many presented it with this identity, and
+`pair_permille` is the second per thousand of the first. The current request
+counts, so a pairing seen for the first time reads 1.
+
+`available` is false when the request makes no claim, no identity is
+captured, or the census is saturated for this claim, and the counts are zero.
+Cloudflare hashes the cipher list in wire order, which includes the random
+GREASE value Chrome places first, so one Chrome build spreads across sixteen
+identities and a common pairing reads near 60 permille rather than 1000. Gate
+on `claim_networks` before trusting `pair_permille`, because a claim key with
+a handful of networks behind it says nothing.
+
+```kdl
+signal "stack-mismatch" weight=40 condition=(rhai)#"""
+   claim["browser"] && "edge_family" in fp && fp["edge_family"] != claim["stack"]
+   """#
+signal "rare-pairing" weight=40 condition=(rhai)#"""
+   census["available"] && census["claim_networks"] >= 200 && census["pair_permille"] < 20
+   """#
+```
+
+`stack-mismatch` is deterministic and needs no warm-up, since it compares the
+claim with a recognised list. `rare-pairing` covers the lists the table does
+not know and any drift after a browser release.
+
+A new browser release arrives as a new claim key with an empty census, so it
+fails open until enough networks have presented it. Someone can teach the
+census a pairing by presenting it from many networks, which is the same cost
+that the rate tracker already imposes.
+
+```
+solves["available"]
+solves["10m"]
+solves["60m"]
+```
+
+`solves` counts proof-of-work verifications this host accepted from the source
+network in one-minute buckets, read without counting the current request. A
+person solves about once per token lifetime, so a network completing dozens of
+proofs an hour is a solver farm sharing a prefix, or a large NAT, which is
+why this is a signal and not a rule.
 
 ## Scoring
 
@@ -538,6 +631,13 @@ fields.
 - rate_10s
 - rate_60s
 - poison_returned
+- solves_60m
+- claim
+- census_claim_networks
+- census_pair_networks
+- fp_edge_family
+- fp_edge_list
+- fp_edge_grease
 - candidate_threshold
 - candidate_action
 - candidate_status

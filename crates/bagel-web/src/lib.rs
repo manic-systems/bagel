@@ -1,6 +1,7 @@
 pub mod body;
 pub mod cache;
 pub mod challenge;
+pub mod claim;
 /// Gated because it is the only user of `hickory-resolver`, which a config
 /// with no `crawlers` block never reaches.
 #[cfg(feature = "fcrdns")]

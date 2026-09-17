@@ -140,7 +140,7 @@ impl PendingChallenges {
       duration: Duration,
    ) -> Result<ChallengeKey, IssueError> {
       let rate = self.issuance.record(&binding.host, binding.network);
-      if rate.last_1s > 32 || rate.last_60s > 120 {
+      if rate.last_1 > 32 || rate.last_60 > 120 {
          return Err(IssueError::Limited);
       }
 
@@ -176,7 +176,7 @@ impl PendingChallenges {
       let rate = self
          .verification
          .record(host, SourceNetwork::from_ip(client_ip));
-      rate.last_1s <= 32 && rate.last_60s <= 120
+      rate.last_1 <= 32 && rate.last_60 <= 120
    }
 
    #[must_use]

@@ -456,6 +456,10 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
       Ok(cookie) => cookie,
       Err(resp) => return resp,
    };
+   let _ = state
+      .runtime
+      .solve_tracker
+      .record(host.as_str(), SourceNetwork::from_ip(client_ip));
 
    Response::builder()
       .status(StatusCode::OK)

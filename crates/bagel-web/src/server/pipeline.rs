@@ -339,10 +339,14 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       matched_signals = ?score_result.as_ref().map(|result| &result.matched),
       signal_errors = ?score_result.as_ref().map(|result| &result.errors),
       rate_available = ctx.rate.is_some(),
-      rate_1s = ctx.rate.map_or(0, |snap| snap.last_1s),
-      rate_10s = ctx.rate.map_or(0, |snap| snap.last_10s),
-      rate_60s = ctx.rate.map_or(0, |snap| snap.last_60s),
+      rate_1s = ctx.rate.map_or(0, |snap| snap.last_1),
+      rate_10s = ctx.rate.map_or(0, |snap| snap.last_10),
+      rate_60s = ctx.rate.map_or(0, |snap| snap.last_60),
       poison_returned = ctx.poison_returned,
+      solves_60m = ctx.solves.map_or(0, |snap| snap.last_60),
+      claim = ctx.claim.map(|claim| claim.key()),
+      census_claim_networks = ctx.census.map(|snap| snap.claim_networks),
+      census_pair_networks = ctx.census.map(|snap| snap.pair_networks),
       fp_ja4 = ctx.fp.get("ja4"),
       fp_proxied = ctx.fp.get("proxied"),
       fp_source = ctx.fp.get("source"),
@@ -352,6 +356,9 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       fp_edge_tls_version = ctx.fp.get("edge_tls_version"),
       fp_edge_http = ctx.fp.get("edge_http"),
       fp_edge_ciphers_sha1 = ctx.fp.get("edge_ciphers_sha1"),
+      fp_edge_family = ctx.fp.get("edge_family"),
+      fp_edge_list = ctx.fp.get("edge_list"),
+      fp_edge_grease = ctx.fp.get("edge_grease"),
       fp_edge_extensions_sha1 = ctx.fp.get("edge_extensions_sha1"),
       fp_edge_hello_length = ctx.fp.get("edge_hello_length"),
       fp_http2 = ctx.fp.get("http2"),
@@ -434,7 +441,14 @@ fn request_context(
 
    if let Some(network) = source_network {
       ctx.rate = Some(state.runtime.rate_tracker.record(host, network));
+      ctx.solves = Some(state.runtime.solve_tracker.peek(host, network));
       ctx.poison_returned = state.poison_returned(host, network);
+      if let (Some(claim), Some(identity)) = (ctx.claim, ctx.fp_identity.as_deref()) {
+         ctx.census = state
+            .runtime
+            .census
+            .observe(&claim.key(), identity, network);
+      }
    }
    if let Some(ip) = client_ip {
       ctx.lease_active = state

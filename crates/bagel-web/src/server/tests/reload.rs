@@ -40,7 +40,7 @@ async fn reload_preserves_runtime_state_and_keys() {
       old.runtime
          .rate_tracker
          .record("example.test", source)
-         .last_60s,
+         .last_60,
       1
    );
 
@@ -65,7 +65,7 @@ async fn reload_preserves_runtime_state_and_keys() {
          .runtime
          .rate_tracker
          .record("example.test", source)
-         .last_60s,
+         .last_60,
       2
    );
 }

@@ -53,6 +53,7 @@ use crate::{
    net::{
       ConnectionPeer,
       IpNetTrie,
+      census::FingerprintCensus,
       decay_map::DecayMap,
       loader::load_networks,
       rate::RateTracker,
@@ -114,6 +115,11 @@ pub struct Runtime {
    pub rhai_engine:        Engine,
    /// Shared across reloads unless the configured capacity changes.
    pub rate_tracker:       Arc<RateTracker>,
+   /// Challenge passes per host and source network in minute buckets,
+   /// shared across reloads.
+   pub solve_tracker:      Arc<RateTracker>,
+   /// Claim-to-fingerprint census, shared across reloads.
+   pub census:             Arc<FingerprintCensus>,
    pub pending_challenges: Arc<PendingChallenges>,
    /// Shared across reloads when its inputs are unchanged.
    pub poison:             Arc<PoisonStore>,
@@ -459,6 +465,20 @@ impl StateInner {
          .filter(|tracker| tracker.capacity() == rate_capacity)
          .unwrap_or_else(|| Arc::new(RateTracker::new(rate_capacity)));
 
+      let solve_tracker = prev.map_or_else(
+         || {
+            Arc::new(RateTracker::with_bucket(
+               crate::net::rate::DEFAULT_CAPACITY,
+               Duration::from_secs(60),
+            ))
+         },
+         |previous| Arc::clone(&previous.runtime.solve_tracker),
+      );
+      let census = prev.map_or_else(
+         || Arc::new(FingerprintCensus::default()),
+         |previous| Arc::clone(&previous.runtime.census),
+      );
+
       let policy_revision = POLICY_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
       let pending_challenges = prev.map_or_else(
          || Arc::new(PendingChallenges::default()),
@@ -583,6 +603,8 @@ impl StateInner {
             http_client,
             rhai_engine,
             rate_tracker,
+            solve_tracker,
+            census,
             pending_challenges,
             poison,
             renderers,

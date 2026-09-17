@@ -61,6 +61,18 @@ impl TlsFingerprint {
       self.cloudflare = cloudflare;
    }
 
+   /// The most specific stable identity available, preferring a native JA4
+   /// over a proxy digest over the Cloudflare cipher hash.
+   #[must_use]
+   pub fn identity(&self) -> Option<String> {
+      match (&self.native, &self.proxied, &self.cloudflare) {
+         (Capture::Complete(hello), ..) => Some(hello.ja4.clone()),
+         (_, Capture::Complete(relayed), _) if relayed.digest().is_some() => relayed.digest(),
+         (_, _, Capture::Complete(edge)) => edge.ciphers_hex(),
+         _ => None,
+      }
+   }
+
    #[must_use]
    pub fn policy_fields(&self) -> HashMap<String, String> {
       let native = !matches!(self.native, Capture::Unavailable);
