@@ -496,11 +496,13 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
       },
    }
 
+   let mut result = solution.nonce.to_be_bytes().to_vec();
+   result.extend_from_slice(&solution.probe.to_be_bytes());
    let cookie = match seal_pass(
       &client,
       challenge_name,
       &challenge_key,
-      solution.nonce.to_be_bytes().to_vec(),
+      result,
       level,
       reg.duration,
    ) {

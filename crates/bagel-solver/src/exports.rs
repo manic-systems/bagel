@@ -89,14 +89,16 @@ pub extern "C" fn solve(start: u64, count: u32) -> i64 {
       .unwrap_or(-1)
 }
 
-/// Write the sealed solution into the buffer and return its length.
+/// Write the sealed solution into the buffer and return its length. The
+/// probe words are whatever the host observed about its environment.
 #[unsafe(no_mangle)]
-pub extern "C" fn seal(nonce: u64, iv: u32) -> u32 {
+pub extern "C" fn seal(nonce: u64, iv: u32, probe_hi: u32, probe_lo: u32) -> u32 {
    let st = state();
    let solution = Solution {
       key: st.handoff.key,
       nonce,
       difficulty: st.handoff.difficulty,
+      probe: (u64::from(probe_hi) << 32) | u64::from(probe_lo),
    };
    let sealed = codec::pack_solution(iv.to_le_bytes(), &solution);
    for (slot, byte) in st.buf.iter_mut().zip(sealed) {

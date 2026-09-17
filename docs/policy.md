@@ -102,6 +102,7 @@ The rest are maps.
 | `census`   | Four keys, listed below         | How common this claim and transport fingerprint pairing is                 |
 | `solves`   | `available`, `10m`, `60m`       | Proof-of-work passes for this host and source network                      |
 | `visit`    | Five keys, listed below         | What this clearance session has done with the pages it was served          |
+| `probe`    | `available`, `profile`          | Environment profile the solver sealed into the clearance token             |
 | `poison`   | `returned`                      | True when a maze on this host holds an active entry for the source network |
 | `lease`    | `active`                        | True while the client address sits inside an active defense lease          |
 | `crawler`  | `verified`                      | True when forward-confirmed reverse DNS matched a configured provider      |
@@ -308,6 +309,9 @@ census["available"]
 census["claim_networks"]
 census["pair_networks"]
 census["pair_permille"]
+census["probe_available"]
+census["probe_networks"]
+census["probe_permille"]
 ```
 
 The census keys on `family/major/platform` and on the most specific stable
@@ -356,6 +360,20 @@ network in one-minute buckets, read without counting the current request. A
 person solves about once per token lifetime, so a network completing dozens of
 proofs an hour is a solver farm sharing a prefix, or a large NAT, which is
 why this is a signal and not a rule.
+
+## Probe profile
+
+The solver worker records which of 48 browser APIs exist in its scope and a
+few engine quirks, packs them into 64 bits, and seals them into the solution
+next to the nonce. The verify handler stores the words in the clearance
+token, so every later request carries `probe["profile"]` as sixteen hex
+digits. The server never checks the profile against a list. It feeds the
+census as a second identity next to the transport fingerprint, and
+`census["probe_networks"]` and `census["probe_permille"]` say how many
+networks presenting this claim produced this exact profile. A stubbed
+environment produces a profile no real browser has, and a copied real
+profile ages out as browsers update, without a rule anyone can read out of
+the code and satisfy.
 
 ## Visit shape and render beacons
 
@@ -688,6 +706,8 @@ fields.
 - visit_greedy
 - visit_documents
 - visit_assets
+- probe
+- census_probe_networks
 - candidate_threshold
 - candidate_action
 - candidate_status

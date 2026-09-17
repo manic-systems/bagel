@@ -133,6 +133,7 @@ async fn background_pow_solves_on_the_live_page() {
       key: handoff.key,
       nonce,
       difficulty: 1,
+      probe: 0,
    };
 
    let mut req = Request::builder()

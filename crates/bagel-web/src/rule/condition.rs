@@ -84,6 +84,10 @@ pub struct ConditionContext {
    /// Census counts for this claim and identity, `None` when either is
    /// missing or the census is saturated.
    pub census:           Option<CensusSnapshot>,
+   /// Environment profile the solver sealed into the clearance token.
+   pub probe:            Option<u64>,
+   /// Census counts for this claim and probe profile.
+   pub probe_census:     Option<CensusSnapshot>,
    /// Pre-computed network membership results: `network_name` -> bool.
    pub network_results:  HashMap<String, bool>,
    /// Normal rate snapshot, `None` when no client network resolved.
@@ -216,7 +220,39 @@ impl ConditionContext {
                .map_or(0_i64, |snap| i64::from(snap.pair_permille())),
          ),
       );
+      census_map.insert(
+         "probe_available".into(),
+         Dynamic::from(self.probe_census.is_some()),
+      );
+      census_map.insert(
+         "probe_networks".into(),
+         Dynamic::from(
+            self
+               .probe_census
+               .map_or(0_i64, |snap| i64::from(snap.pair_networks)),
+         ),
+      );
+      census_map.insert(
+         "probe_permille".into(),
+         Dynamic::from(
+            self
+               .probe_census
+               .map_or(0_i64, |snap| i64::from(snap.pair_permille())),
+         ),
+      );
       scope.push_constant("census", census_map);
+
+      let mut probe_map = rhai::Map::new();
+      probe_map.insert("available".into(), Dynamic::from(self.probe.is_some()));
+      probe_map.insert(
+         "profile".into(),
+         Dynamic::from(
+            self
+               .probe
+               .map_or_else(String::new, |probe| format!("{probe:016x}")),
+         ),
+      );
+      scope.push_constant("probe", probe_map);
 
       let mut solves_map = rhai::Map::new();
       solves_map.insert("available".into(), Dynamic::from(self.solves.is_some()));
@@ -333,6 +369,8 @@ impl ConditionContext {
          fp,
          fp_identity,
          census: None,
+         probe: None,
+         probe_census: None,
          network_results: HashMap::new(),
          rate: None,
          solves: None,

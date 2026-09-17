@@ -351,6 +351,8 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       claim = ctx.claim.map(|claim| claim.key()),
       census_claim_networks = ctx.census.map(|snap| snap.claim_networks),
       census_pair_networks = ctx.census.map(|snap| snap.pair_networks),
+      probe = ctx.probe.map(|probe| format!("{probe:016x}")),
+      census_probe_networks = ctx.probe_census.map(|snap| snap.pair_networks),
       fp_ja4 = ctx.fp.get("ja4"),
       fp_proxied = ctx.fp.get("proxied"),
       fp_source = ctx.fp.get("source"),
@@ -434,6 +436,15 @@ fn request_context(
 
    let mut ctx = ConditionContext::from_request(req);
    host.clone_into(&mut ctx.host);
+   ctx.probe = challenge_state.token.as_ref().and_then(|token| {
+      token
+         .state
+         .values()
+         .filter(|pass| pass.ok && pass.result.len() == 16)
+         .max_by_key(|pass| pass.iat)
+         .and_then(|pass| pass.result.last_chunk::<8>())
+         .map(|probe| u64::from_be_bytes(*probe))
+   });
    if let Some(session) = challenge_state.token.as_ref().map(|token| token.session) {
       let document = req
          .headers()
@@ -460,6 +471,13 @@ fn request_context(
             .runtime
             .census
             .observe(&claim.key(), identity, network);
+      }
+      if let (Some(claim), Some(probe)) = (ctx.claim, ctx.probe) {
+         ctx.probe_census =
+            state
+               .runtime
+               .census
+               .observe(&claim.key(), &format!("probe:{probe:016x}"), network);
       }
    }
    if let Some(ip) = client_ip {

@@ -7,7 +7,7 @@
 pub const IV_LEN: usize = 4;
 pub const KEY_LEN: usize = 32;
 pub const HANDOFF_LEN: usize = IV_LEN + KEY_LEN + 3;
-pub const SOLUTION_LEN: usize = IV_LEN + KEY_LEN + 9;
+pub const SOLUTION_LEN: usize = IV_LEN + KEY_LEN + 17;
 
 /// Which proof the module must produce.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,6 +48,8 @@ pub struct Solution {
    pub key:        [u8; KEY_LEN],
    pub nonce:      u64,
    pub difficulty: u8,
+   /// Environment profile the solver observed, opaque to the proof.
+   pub probe:      u64,
 }
 
 fn keystream<'a>(iv: [u8; IV_LEN], data: impl IntoIterator<Item = &'a mut u8>) {
@@ -98,15 +100,16 @@ pub fn unpack_handoff(blob: &[u8]) -> Option<Handoff> {
 #[must_use]
 pub fn pack_solution(iv: [u8; IV_LEN], solution: &Solution) -> [u8; SOLUTION_LEN] {
    const _: () = assert!(
-      IV_LEN + KEY_LEN + 8 + 1 == SOLUTION_LEN,
-      "pack_solution writes an eight byte nonce and one difficulty byte"
+      IV_LEN + KEY_LEN + 8 + 1 + 8 == SOLUTION_LEN,
+      "pack_solution writes an eight byte nonce, one difficulty byte and an eight byte probe"
    );
    let mut out = [0_u8; SOLUTION_LEN];
    for (slot, byte) in out.iter_mut().zip(
       iv.into_iter()
          .chain(solution.key)
          .chain(solution.nonce.to_be_bytes())
-         .chain([solution.difficulty]),
+         .chain([solution.difficulty])
+         .chain(solution.probe.to_be_bytes()),
    ) {
       *slot = byte;
    }
@@ -124,9 +127,12 @@ pub fn unpack_solution(blob: &[u8]) -> Option<Solution> {
    }
    keystream(iv, &mut body);
    let (&key, rest) = body.split_first_chunk::<KEY_LEN>()?;
+   let (&nonce, rest) = rest.split_first_chunk::<8>()?;
+   let (&[difficulty], rest) = rest.split_first_chunk::<1>()?;
    Some(Solution {
       key,
-      nonce: u64::from_be_bytes(*rest.first_chunk::<8>()?),
-      difficulty: body[KEY_LEN + 8],
+      nonce: u64::from_be_bytes(nonce),
+      difficulty,
+      probe: u64::from_be_bytes(*rest.first_chunk::<8>()?),
    })
 }

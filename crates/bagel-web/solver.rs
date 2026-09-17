@@ -152,6 +152,8 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
       actions.push(call("seal", vec![
          verify::Value::I64(nonce as i64),
          verify::Value::I32(i32::from_le_bytes([7; 4])),
+         verify::Value::I32(0x1234_5678),
+         verify::Value::I32(-1),
       ]));
       expected.push((
          "seal",
@@ -167,6 +169,7 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
             key,
             nonce,
             difficulty,
+            probe: 0x1234_5678_FFFF_FFFF,
          })
          .to_vec(),
       );

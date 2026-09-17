@@ -11,6 +11,58 @@ const encode = (bytes) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
+const PROBES = [
+  "OffscreenCanvas", "ImageBitmap", "createImageBitmap", "WebGL2RenderingContext", "GPU",
+  "navigator.gpu", "navigator.hardwareConcurrency", "navigator.userAgentData",
+  "navigator.storage", "navigator.locks", "navigator.permissions", "navigator.connection",
+  "caches", "indexedDB", "BroadcastChannel", "MessageChannel", "WebSocket", "EventSource",
+  "FileReaderSync", "ImageData", "Path2D", "FontFace", "self.fonts",
+  "WebAssembly.instantiateStreaming", "WebAssembly.compileStreaming", "CompressionStream",
+  "DecompressionStream", "TextDecoderStream", "crypto.subtle", "crypto.randomUUID",
+  "performance.memory", "performance.timeOrigin", "scheduler", "requestIdleCallback",
+  "importScripts", "WorkerGlobalScope", "DedicatedWorkerGlobalScope", "WorkerNavigator",
+  "WorkerLocation", "PushManager", "Notification", "PerformanceObserver", "ReportingObserver",
+  "TrustedTypePolicyFactory", "WebTransport", "RTCPeerConnection", "AudioData", "VideoFrame",
+];
+
+const present = (path) => {
+  try {
+    return path.split(".").reduce((scope, part) => scope?.[part], globalThis) !== undefined;
+  } catch {
+    return false;
+  }
+};
+
+const quirk = (check) => {
+  try {
+    return check() ? 1 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const probe = () => {
+  let lo = 0;
+  let hi = 0;
+  PROBES.forEach((path, bit) => {
+    if (!present(path)) return;
+    if (bit < 32) lo |= 1 << bit;
+    else hi |= 1 << (bit - 32);
+  });
+  const cores = Math.min(15, Math.max(0, Number(navigator.hardwareConcurrency) || 0));
+  const heap = Number(performance.memory?.jsHeapSizeLimit) / 1048576;
+  const memory = heap >= 512 ? Math.min(7, 1 + Math.floor(Math.log2(heap / 512))) : 0;
+  hi |= cores << 16;
+  hi |= memory << 20;
+  hi |= quirk(() => Object.getOwnPropertyDescriptor(navigator, "userAgent") === undefined) << 23;
+  hi |= quirk(() => typeof Error.captureStackTrace === "function") << 24;
+  hi |= quirk(() => Function.prototype.toString.call(fetch).includes("native code")) << 25;
+  hi |= quirk(() => String(new Error().stack).trimStart().startsWith("Error")) << 26;
+  hi |= quirk(() => Intl.DateTimeFormat().resolvedOptions().timeZone === "UTC") << 27;
+  hi |= Math.min(3, String(navigator.language ?? "").length) << 28;
+  return [hi >>> 0, lo >>> 0];
+};
+
 self.onmessage = async ({ data }) => {
   self.onmessage = null;
 
@@ -38,7 +90,8 @@ self.onmessage = async ({ data }) => {
     }
 
     const iv = crypto.getRandomValues(new Uint32Array(1))[0];
-    const length = seal(found, iv);
+    const [hi, lo] = probe();
+    const length = seal(found, iv, hi, lo);
     self.postMessage({ type: "proof", proof: encode(view().subarray(base, base + length)) });
   } catch {
     self.postMessage({ type: "error" });
