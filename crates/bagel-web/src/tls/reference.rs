@@ -13,7 +13,8 @@ use ring::digest::{
 /// GREASE value for stacks that prepend one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reference {
-   pub family: &'static str,
+   /// The stack this list belongs to, [`None`] when two stacks share it.
+   pub family: Option<&'static str>,
    pub list:   &'static str,
    pub grease: bool,
 }
@@ -60,17 +61,22 @@ const LISTS: &[(&str, &str, &[u16])] = &[
    ]),
 ];
 
+// Over QUIC Chrome sends its three TLS 1.3 suites without a GREASE value,
+// while Safari 18 sends the same three suites with one.
+const SHARED_WITH_GREASE: &str = "chromium-tls13";
+
 static TABLE: LazyLock<HashMap<[u8; 20], Reference>> = LazyLock::new(|| {
    let mut table = HashMap::new();
    for &(family, list, ciphers) in LISTS {
       table.insert(sha1(None, ciphers), Reference {
-         family,
+         family: Some(family),
          list,
          grease: false,
       });
+      let grease_family = (list != SHARED_WITH_GREASE).then_some(family);
       for grease in GREASE {
          table.insert(sha1(Some(grease), ciphers), Reference {
-            family,
+            family: grease_family,
             list,
             grease: true,
          });
@@ -80,11 +86,11 @@ static TABLE: LazyLock<HashMap<[u8; 20], Reference>> = LazyLock::new(|| {
 });
 
 fn sha1(grease: Option<u16>, ciphers: &[u16]) -> [u8; 20] {
-   let bytes: Vec<u8> = grease
+   let bytes = grease
       .into_iter()
       .chain(ciphers.iter().copied())
       .flat_map(u16::to_be_bytes)
-      .collect();
+      .collect::<Vec<u8>>();
    digest(&SHA1_FOR_LEGACY_USE_ONLY, &bytes)
       .as_ref()
       .try_into()

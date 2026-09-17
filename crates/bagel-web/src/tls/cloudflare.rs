@@ -223,7 +223,9 @@ impl CloudflareFingerprint {
          .as_ref()
          .and_then(|hash| reference::lookup(&hash.0))
       {
-         fields.insert("edge_family".to_owned(), known.family.to_owned());
+         if let Some(family) = known.family {
+            fields.insert("edge_family".to_owned(), family.to_owned());
+         }
          fields.insert("edge_list".to_owned(), known.list.to_owned());
          fields.insert("edge_grease".to_owned(), known.grease.to_string());
       }

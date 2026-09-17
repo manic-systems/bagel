@@ -202,16 +202,16 @@ back to the nginx format.
 | `edge_grease`          | `true` when the list carried a GREASE cipher in front                                         |
 
 These observations do not reconstruct JA4. The extension hash and hello
-length vary per connection because browsers shuffle extension order, so treat
-them as noise. The cipher hash is stable per stack apart from the GREASE
-value BoringSSL and Apple prepend, and bagel resolves it against a built-in
-table of the cipher lists real browsers send, following the profiles
+length change per connection because browsers shuffle extension order, so
+treat them as noise. The cipher hash is stable per stack apart from the
+GREASE value BoringSSL and Apple prepend, and bagel resolves it against a
+built-in table of the lists real browsers send, following the profiles
 wreq-util maintains. `edge_family`, `edge_list` and `edge_grease` appear only
-on a match. A stack that copies a browser's list without its GREASE slot, or
-that never varies it, is visible through `edge_grease`. The same emulation
-library can reproduce these hashes exactly, so a match proves the list and
-not the browser. Missing or invalid metadata is visible through `edge_status`
-and does not automatically deny a request.
+on a match. `edge_family` is omitted for the one list two stacks share, the
+three TLS 1.3 suites with a GREASE value, which Safari 18 sends over QUIC and
+Chromium over TCP. An emulation library reproduces these hashes exactly, so a
+match proves the list, not the browser. Missing or invalid metadata shows in
+`edge_status` and never denies a request by itself.
 
 Decision logs include `fp_source`, `fp_tls_status`, `fp_proxied_status`,
 `fp_http2`, `fp_http2_status`, `fp_ja4` and `fp_proxied`. A familiar browser
@@ -281,11 +281,10 @@ rebuilds the tracker.
 
 ## Claims and the census
 
-A request carries two accounts of what it is. The user agent is the claim, and
-the transport fingerprint is what the network stack actually did. Bagel parses
-the claim into `claim` and learns, from its own traffic, which fingerprints
-each claim presents, so policy can score a request whose two accounts
-disagree without anyone curating a fingerprint list.
+The user agent is what a request claims to be. The transport fingerprint is
+what its network stack did. Bagel parses the first into `claim` and learns
+from its own traffic which fingerprints each claim presents, so policy can
+score the two disagreeing without a curated list.
 
 ```
 claim["browser"]
@@ -293,17 +292,16 @@ claim["family"]
 claim["major"]
 claim["platform"]
 claim["mobile"]
+claim["stack"]
 ```
 
-`browser` is true when the user agent parses as a browser, and the other keys
-are empty or zero otherwise. `family` is one of `chrome`, `edge`, `firefox`,
-`safari`, `opera`, `samsung` or `yandex`, `major` is the integer major
-version, and `platform` is `windows`, `macos`, `ios`, `android`, `chromeos`,
-`linux` or `unknown`. `stack` names the TLS stack the claim implies in the
-same terms as `fp["edge_family"]`, so `chromium` for Chrome, Edge, Opera,
-Samsung and Yandex, `firefox` for Firefox, and `safari` for Safari and for
-every browser on iOS, where Apple's stack handles TLS regardless of brand.
-Tools, crawlers and empty user agents make no claim.
+`browser` is true when the user agent parses as a browser. `family` is one of
+`chrome`, `edge`, `firefox`, `safari`, `opera`, `samsung` or `yandex`,
+`major` is the integer version, and `platform` is `windows`, `macos`, `ios`,
+`android`, `chromeos`, `linux` or `unknown`. `stack` is the TLS stack the
+claim implies in `fp["edge_family"]` terms, and every browser on iOS maps to
+`safari` because Apple's stack does TLS for all of them. Tools and crawlers
+make no claim.
 
 ```
 census["available"]
@@ -315,22 +313,17 @@ census["probe_networks"]
 census["probe_permille"]
 ```
 
-The census keys on `family/major/platform` and on the most specific stable
-transport identity available, which is the native JA4 when bagel terminates
-TLS, otherwise the proxy digest, otherwise the Cloudflare cipher list hash.
-It counts distinct source networks over the current and previous four-hour
-generation. `claim_networks` is how many networks presented this claim,
-`pair_networks` is how many presented it with this identity, and
-`pair_permille` is the second per thousand of the first. The current request
-counts, so a pairing seen for the first time reads 1.
-
-`available` is false when the request makes no claim, no identity is
-captured, or the census is saturated for this claim, and the counts are zero.
-Cloudflare hashes the cipher list in wire order, which includes the random
-GREASE value Chrome places first, so one Chrome build spreads across sixteen
-identities and a common pairing reads near 60 permille rather than 1000. Gate
-on `claim_networks` before trusting `pair_permille`, because a claim key with
-a handful of networks behind it says nothing.
+The census keys on `family/major/platform` and on the best stable identity
+available, native JA4, then the proxy digest, then the Cloudflare cipher
+hash. It counts distinct source networks over the current and previous
+four-hour generation, including the current request. `claim_networks` is how
+many networks presented the claim, `pair_networks` how many presented it with
+this identity, and `pair_permille` the ratio per thousand. `available` is
+false without a claim or identity, or when the census is saturated. Chrome's
+random GREASE value spreads one build over sixteen hashes, so a common
+pairing reads near 60 permille. Gate on `claim_networks`, since a claim few
+networks have presented says nothing, and a new browser release fails open
+until enough have.
 
 ```kdl
 signal "stack-mismatch" weight=40 condition=(rhai)#"""
@@ -341,14 +334,8 @@ signal "rare-pairing" weight=40 condition=(rhai)#"""
    """#
 ```
 
-`stack-mismatch` is deterministic and needs no warm-up, since it compares the
-claim with a recognised list. `rare-pairing` covers the lists the table does
-not know and any drift after a browser release.
-
-A new browser release arrives as a new claim key with an empty census, so it
-fails open until enough networks have presented it. Someone can teach the
-census a pairing by presenting it from many networks, which is the same cost
-that the rate tracker already imposes.
+`stack-mismatch` needs no warm-up. `rare-pairing` covers the lists the table
+does not know.
 
 ```
 solves["available"]
@@ -356,36 +343,29 @@ solves["10m"]
 solves["60m"]
 ```
 
-`solves` counts proof-of-work verifications this host accepted from the source
-network in one-minute buckets, read without counting the current request. A
-person solves about once per token lifetime, so a network completing dozens of
-proofs an hour is a solver farm sharing a prefix, or a large NAT, which is
-why this is a signal and not a rule.
+`solves` counts proofs of work this host accepted from the source network,
+in minute buckets, read before the current request. A person solves about
+once per token life, so dozens an hour is a farm sharing a prefix or a large
+NAT, which is why it is a signal.
 
 ## Probe profile
 
-The solver worker records which of 48 browser APIs exist in its scope and a
-few engine quirks, packs them into 64 bits, and seals them into the solution
-next to the nonce. The verify handler stores the words in the clearance
-token, so every later request carries `probe["profile"]` as sixteen hex
-digits. The server never checks the profile against a list. It feeds the
-census as a second identity next to the transport fingerprint, and
-`census["probe_networks"]` and `census["probe_permille"]` say how many
-networks presenting this claim produced this exact profile. A stubbed
-environment produces a profile no real browser has, and a copied real
-profile ages out as browsers update, without a rule anyone can read out of
-the code and satisfy.
+The solver worker packs the presence of 48 browser APIs and a few engine
+quirks into 64 bits and seals them next to the nonce. Verify stores them in
+the token, so later requests carry `probe["profile"]` as sixteen hex digits.
+Nothing checks the profile against a list. It is a second census identity,
+and `census["probe_permille"]` says how many networks with this claim produce
+this exact profile. A stubbed environment yields a profile no browser has,
+with no rule to read out of the code and satisfy.
 
 ## Proof-of-work tiers
 
-`pow["level"]` is the highest difficulty among the token's proof-of-work
-passes and `pow["available"]` is false without one. A `pow-sha256` challenge
-with `gpu-difficulty` offers two levels at once, and the level a token holds
-says which path solved it. A client without WebGPU, which includes Linux
-Firefox and Vanadium today, lands on the wasm path at `difficulty` and gets
-`duration`, so a network that keeps showing up at the base level while
-claiming a desktop Chrome is worth a look, and a network solving the base
-level many times an hour is a farm hiding on the cheap path.
+`pow["level"]` is the highest difficulty among the token's passes. A
+`pow-sha256` challenge with `gpu-difficulty` offers two levels, and the level
+a token holds says which path solved it. Clients without WebGPU, Linux
+Firefox and Vanadium among them, land on the wasm path at `difficulty`, so a
+network that solves the base level many times an hour is a farm on the cheap
+path.
 
 ```kdl
 signal "cpu-path" weight=20 condition=(rhai)#"pow["available"] && pow["level"] < 26"#
@@ -393,10 +373,8 @@ signal "cpu-path" weight=20 condition=(rhai)#"pow["available"] && pow["level"] <
 
 ## Visit shape and render beacons
 
-Everything above asks what a client is. `visit` records what it does. The
-record is keyed by the 32-byte session inside the clearance cookie, lives for
-an hour after the last request, and is unavailable before a session exists,
-which is fine because the interstitial is never proxied HTML.
+Everything above asks what a client is. `visit` records what it does, keyed
+by the session in the clearance cookie for an hour after the last request.
 
 ```
 visit["available"]
@@ -407,22 +385,19 @@ visit["assets"]
 ```
 
 `documents` counts requests whose `sec-fetch-dest` is `document` or absent,
-and `assets` counts the rest. `rendered` and `greedy` come from beacons.
+`assets` the rest. `rendered` and `greedy` come from beacons.
 
-`action="beacon"` continues to the next rule and, when the request ends up
-proxied and the origin answers with uncompressed HTML, appends a style block
-and one empty element. The block carries two image URLs bound to the session,
-host and a ten-minute bucket. The positive one is a `background-image` on a
-1px pseudo-element under `@media (min-width: 1px)`, which a browser fetches
-once styles resolve and a box exists and which no HTML library fetches,
-because none of them lay out. The negative one sits under
-`@media (max-width: 0px)`, which no browser evaluates true, so fetching it
-means the client pulls every URL it sees. Fetching the positive beacon sets
-`rendered` and resets `documents`, fetching the negative one sets `greedy`,
-and once a session has rendered the rule stops injecting. The origin's CSP
-must allow inline styles and same-origin images for the beacon to load, the
-same constraint the `check` widget documents. Beacon is not allowed as a
-threshold action.
+`action="beacon"` continues to the next rule and appends a style block and
+one empty element to proxied, uncompressed HTML. The block holds two image
+URLs bound to the session, host and a ten-minute bucket. The positive one is
+a `background-image` on a 1px pseudo-element under `@media (min-width: 1px)`,
+fetched once styles resolve, which no HTML library does because none lay
+out. The negative one sits under `@media (max-width: 0px)`, which no browser
+evaluates true, so fetching it means the client pulls every URL it sees.
+The positive beacon sets `rendered` and resets `documents`, the negative one
+sets `greedy`, and injection stops once a session has rendered. The origin's
+CSP must allow inline styles and same-origin images. Beacon is not allowed as
+a threshold action.
 
 ```kdl
 signal "unrendered" weight=40 condition=(rhai)#"""
@@ -431,10 +406,10 @@ signal "unrendered" weight=40 condition=(rhai)#"""
 signal "greedy" weight=40 condition=(rhai)#"visit["greedy"]"#
 ```
 
-A client can read the `url()` values out of the style block and fetch them.
-To pass it has to fetch the positive one and skip the negative one, which
-means evaluating media queries, and together with the lure it has to get
-three traps right at once. This is a cost step, not a proof.
+A client can read the `url()` values and fetch them, but to pass it must
+take the positive one and skip the negative one, which means evaluating media
+queries. Together with the lure that is three traps to get right at once, a
+cost step rather than a proof.
 
 ## Scoring
 
