@@ -11,7 +11,10 @@ use super::{
    condition::Prelude,
 };
 use crate::{
-   config::policy::ScoringConfig,
+   config::policy::{
+      ScoringConfig,
+      Weight,
+   },
    error::{
       Error,
       Result,
@@ -142,12 +145,6 @@ impl ScoringState {
                   card.name, signal.name
                )));
             }
-            if signal.weight == 0 {
-               return Err(Error::Config(format!(
-                  "scorecard '{}': signal '{}' has zero weight",
-                  card.name, signal.name
-               )));
-            }
             let compiled = prelude
                .compile(engine, signal.condition.as_ref())
                .map_err(|err| {
@@ -159,19 +156,13 @@ impl ScoringState {
             signals.push(SignalState {
                name:      signal.name.clone(),
                condition: compiled,
-               weight:    signal.weight,
+               weight:    signal.weight.map_or(0, Weight::get),
             });
          }
 
          let mut thresholds = Vec::new();
          let mut values = HashSet::new();
          for threshold in &card.thresholds {
-            if threshold.value == 0 {
-               return Err(Error::Config(format!(
-                  "scorecard '{}': threshold values must be positive",
-                  card.name
-               )));
-            }
             if !values.insert(threshold.value) {
                return Err(Error::Config(format!(
                   "scorecard '{}': duplicate threshold value {}",

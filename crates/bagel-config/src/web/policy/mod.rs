@@ -5,6 +5,7 @@ use std::{
    },
    fs,
    io,
+   num::NonZeroU32,
    path::Path,
    str::FromStr,
    time::Duration,
@@ -116,7 +117,7 @@ pub struct RuleSettings {
    pub difficulty:       Option<u32>,
 }
 
-/// One weighted scoring signal inside a scorecard.
+/// One scoring signal inside a scorecard. Without a weight it only observes.
 #[derive(Clone, knead_derive::Decode)]
 pub struct SignalConfig {
    #[knead(argument)]
@@ -124,7 +125,7 @@ pub struct SignalConfig {
    #[knead(property)]
    pub condition: RhaiExpression,
    #[knead(property)]
-   pub weight:    u32,
+   pub weight:    Option<Weight>,
 }
 
 /// One positional threshold inside a scorecard.
@@ -536,6 +537,35 @@ fn convert_network_filter(
             ),
          ))
       },
+   }
+}
+
+/// A scoring signal's weight.
+#[derive(Clone, Copy)]
+pub struct Weight(NonZeroU32);
+
+impl Weight {
+   #[must_use]
+   pub const fn get(self) -> u32 {
+      self.0.get()
+   }
+}
+
+impl DecodeScalar for Weight {
+   fn type_check(value: &Value) -> std::result::Result<(), DecodeError> {
+      u32::type_check(value)
+   }
+
+   fn decode(value: &Value) -> std::result::Result<Self, DecodeError> {
+      NonZeroU32::new(u32::decode(value)?)
+         .map(Self)
+         .ok_or_else(|| {
+            DecodeError::new(
+               ErrorKind::Conversion,
+               value.span,
+               "a zero weight scores nothing, omit it to observe",
+            )
+         })
    }
 }
 

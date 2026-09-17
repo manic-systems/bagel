@@ -527,16 +527,20 @@ scorecard that follows an unconditional one because it could never be reached.
 `mode` is `observe` or `enforce` and defaults to `observe`.
 
 Signals are separate nodes, each with a unique name, one Rhai condition and a
-positive u32 weight, and zero weights are rejected. Every signal in the
+optional positive weight. Every signal in the
 selected scorecard is evaluated and the matching weights are added with
-saturating arithmetic. A signal whose expression errors contributes zero,
+saturating arithmetic. A signal without a weight only observes, it is
+named in the decision trace and counted in `bagel_scoring_signal_total`
+without moving the score, which is how a new signal earns a weight from live
+data. A signal whose expression errors contributes zero,
 records the error in the decision trace and bumps an error metric, but it never
 aborts the request. There are no negative weights, so a verified-crawler
 exclusion belongs in the scorecard condition or in a terminal allow rule rather
 than in a subtracted forged-UA score.
 
-Thresholds are unique positive u32 values, and the eligible one with the
-highest value not exceeding the score becomes the candidate. Eight actions are
+Thresholds are unique u32 values, and the eligible one with the
+highest value not exceeding the score becomes the candidate, so a zero
+threshold is the floor every scored request reaches. Eight actions are
 allowed at a threshold, `challenge`, `deny`, `block`, `code`, `drop`, `proxy`,
 `tarpit` and `smear`, while `none`, `context`, `check` and `pass` are rejected
 there. A tarpit action must name an existing maze. A smear action serves a
@@ -846,7 +850,7 @@ The configuration is rejected when any of these holds.
 - Exact-host route prefixes collide
 - A scorecard mode is unknown
 - A scorecard is unreachable after an unconditional scorecard
-- A signal weight is zero
+- A signal weight is zero, omitting it is how a signal observes
 - Signal names or threshold values are duplicated
 - A threshold action is forbidden
 - A challenge threshold has no challenges
