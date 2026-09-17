@@ -117,6 +117,7 @@ impl PowChallenge {
       let loader = LoaderData {
          payload: BASE64URL_NOPAD.encode(&pack_handoff(iv, &handoff)),
          verify_url: format!("/__bagel/{}/verify", ctx.challenge_name),
+         solver_url: ctx.solver_url.clone(),
          background,
       };
 

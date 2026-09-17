@@ -1,51 +1,28 @@
+//! Host-side knowledge about the solver module, the vela profile that
+//! rewrites it and the scenario that proves a rewrite still solves.
+
 use std::{
    array,
    error::Error,
    io,
+   num::NonZeroUsize,
 };
 
-use bagel_solver::{
-   codec,
-   scratch,
-   sha256,
-};
 use vela::{
    config::{
       Config,
       FunctionSelector,
    },
+   delivery::artifact::Compression,
    verify,
    worker::Verifier,
 };
 
-#[must_use]
-pub fn config(seed: u64) -> Config {
-   Config {
-      seed,
-      functions: vec![
-         FunctionSelector::Name("unpack".to_owned()),
-         FunctionSelector::Name("seal".to_owned()),
-      ],
-      include_callees: true,
-      exclude_reachable: vec![FunctionSelector::Name("solve".to_owned())],
-      flatten: true,
-      flatten_ratio: 100u32.try_into().expect("flatten ratio 100 is valid"),
-      markers_all: true,
-      indirect_ratio: 100u32.try_into().expect("indirect ratio 100 is valid"),
-      opaque: false,
-      ..Config::default()
-   }
-}
-
-pub fn rewrite(
-   verifier: &Verifier,
-   input: &[u8],
-   config: &Config,
-) -> Result<Vec<u8>, Box<dyn Error>> {
-   let (output, _report) = vela::transform(input, config)?;
-   validate(verifier, input, &output)?;
-   Ok(output)
-}
+use crate::{
+   codec,
+   scratch,
+   sha256,
+};
 
 fn call(name: &str, arguments: Vec<verify::Value>) -> verify::Action {
    verify::Action::Call {
@@ -55,17 +32,17 @@ fn call(name: &str, arguments: Vec<verify::Value>) -> verify::Action {
 }
 
 pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), Box<dyn Error>> {
-   let host = verify::HostConfig {
-      limits: verify::Limits {
-         fuel:           20_000_000_000,
-         memory_bytes:   4 * 1024 * 1024,
-         table_elements: 4096,
-         read_bytes:     4096,
-      },
-      ..verify::HostConfig::default()
+   let limits = verify::Limits {
+      fuel:           20_000_000_000,
+      memory_bytes:   4 * 1024 * 1024,
+      table_elements: 4096,
+      read_bytes:     4096,
    };
    let probe = vec![call("buf", Vec::new())];
-   let found = verifier.compare_scenario(first, first, &probe, host)?;
+   let found = verifier.compare_scenario(first, first, &probe, verify::HostConfig {
+      limits,
+      ..verify::HostConfig::default()
+   })?;
    let base = found
       .iter()
       .find_map(|entry| {
@@ -184,7 +161,10 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
          .to_vec(),
       );
    }
-   let observations = verifier.compare_scenario(first, second, &actions, host)?;
+   let observations = verifier.compare_scenario(first, second, &actions, verify::HostConfig {
+      limits,
+      ..verify::HostConfig::default()
+   })?;
    let mut calls = expected.iter();
    let mut bodies = sealed.iter();
    let mut memory_seen = false;
@@ -246,45 +226,33 @@ pub fn validate(verifier: &Verifier, first: &[u8], second: &[u8]) -> Result<(), 
    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-   use std::{
-      error::Error,
-      io,
-   };
+#[must_use]
+pub fn config(seed: u64) -> Config {
+   Config {
+      seed,
+      functions: vec![
+         FunctionSelector::Name("unpack".to_owned()),
+         FunctionSelector::Name("seal".to_owned()),
+      ],
+      include_callees: true,
+      exclude_reachable: vec![FunctionSelector::Name("solve".to_owned())],
+      flatten: true,
+      evolve_dispatch: true,
+      flatten_ratio: 100u32.try_into().expect("flatten ratio 100 is valid"),
+      markers_all: true,
+      evolve_pool: true,
+      integrity: true,
+      indirect_ratio: 100u32.try_into().expect("indirect ratio 100 is valid"),
+      opaque: false,
+      ..Config::default()
+   }
+}
 
-   use vela::worker::{
-      Limits,
-      Verifier,
-   };
-
-   use crate::solver::{
-      config,
-      rewrite,
-      validate,
-   };
-
-   #[test]
-   fn solver_rewrites_match_native() -> Result<(), Box<dyn Error>> {
-      let verifier = Verifier::new(env!("BAGEL_VERIFY_WORKER").as_ref(), Limits::default())?;
-      let input = include_bytes!(concat!(env!("OUT_DIR"), "/solver.input.wasm"));
-      let shipped = include_bytes!(concat!(env!("OUT_DIR"), "/solver.wasm"));
-      if input.is_empty() || shipped.is_empty() {
-         return Err(io::Error::other("solver fixtures are missing or empty").into());
-      }
-      validate(&verifier, input, shipped)?;
-      for seed in [0, 1, 42, u64::MAX] {
-         rewrite(&verifier, input, &config(seed))?;
-         let mut aggressive = config(seed);
-         aggressive.functions.clear();
-         aggressive.include_callees = false;
-         aggressive.exclude_reachable.clear();
-         aggressive.markers_all = true;
-         aggressive.opaque = true;
-         aggressive.indirect_ratio = 100u32.try_into().map_err(io::Error::other)?;
-         aggressive.opaque_ratio = 100u32.try_into().map_err(io::Error::other)?;
-         rewrite(&verifier, input, &aggressive)?;
-      }
-      Ok(())
+#[must_use]
+pub fn compression() -> Compression {
+   Compression {
+      quality:          6u8.try_into().expect("Brotli quality 6 is valid"),
+      max_wasm_bytes:   NonZeroUsize::new(10_000).expect("raw size limit is positive"),
+      max_brotli_bytes: NonZeroUsize::new(6_000).expect("wire size limit is positive"),
    }
 }

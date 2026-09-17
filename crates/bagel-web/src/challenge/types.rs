@@ -9,7 +9,10 @@ use std::{
 
 use http::Uri;
 
-use crate::body::Response;
+use crate::{
+   body::Response,
+   solver_delivery::STATIC_URL,
+};
 
 /// Challenge key: 32-byte SHA-256 derived from challenge parameters.
 pub type ChallengeKey = [u8; 32];
@@ -50,6 +53,7 @@ pub struct ChallengeContext<'a> {
    pub logo:           Option<&'a str>,
    /// Difficulty the issuing rule asked for, over the challenge's own.
    pub difficulty:     Option<u32>,
+   pub solver_url:     String,
 }
 
 impl<'a> ChallengeContext<'a> {
@@ -74,6 +78,7 @@ impl<'a> ChallengeContext<'a> {
          links: &[],
          logo: None,
          difficulty: None,
+         solver_url: STATIC_URL.to_owned(),
       }
    }
 }

@@ -36,7 +36,7 @@ use crate::{
 };
 
 const CAPACITY: usize = 65_536;
-const LIFETIME: Duration = Duration::from_secs(300);
+pub const LIFETIME: Duration = Duration::from_secs(300);
 
 pub struct ChallengeBinding {
    host:    String,

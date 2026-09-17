@@ -17,7 +17,7 @@ bagel-core.workspace      = true
 bagel-deception.workspace = true
 bagel-proto.workspace     = true
 bagel-runtime.workspace   = true
-bagel-solver.workspace    = true
+bagel-solver              = { features = [ "host" ], workspace = true }
 bagel-traps.workspace     = true
 ipnetwork.workspace       = true
 
@@ -75,13 +75,11 @@ regex.workspace            = true
 tower-service.workspace    = true
 tracing.workspace          = true
 thiserror.workspace        = true
+vela.workspace             = true
 
 [build-dependencies]
-bagel-solver.workspace = true
+bagel-solver = { features = [ "host" ], workspace = true }
 vela.workspace         = true
-
-[dev-dependencies]
-vela.workspace = true
 
 [lints]
 workspace = true

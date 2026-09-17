@@ -73,6 +73,7 @@ pub struct LoaderData {
    /// Opaque handoff the solver module unpacks itself.
    pub payload:    String,
    pub verify_url: String,
+   pub solver_url: String,
    /// Solve on the live page instead of reloading once verified.
    pub background: bool,
 }
@@ -252,6 +253,7 @@ fn host(widget: &Widget, shadow: Option<&Markup>) -> Markup {
          hidden[hidden]
          data-p=[loader.map(|data| &data.payload)]
          data-v=[loader.map(|data| &data.verify_url)]
+         data-s=[loader.map(|data| &data.solver_url)]
          data-mode=[loader.and_then(|data| data.background.then_some("background"))]
       {
          @match shadow {

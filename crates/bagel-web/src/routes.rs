@@ -57,6 +57,10 @@ use crate::{
    ip_network_prefix,
    metrics,
    server::handle_request,
+   solver_delivery::{
+      STATIC_WASM,
+      serve as serve_solver,
+   },
    state::{
       SharedState,
       StateInner,
@@ -73,22 +77,25 @@ const WIDGET_CSS: &str = include_str!("../assets/widget.css");
 const RUNTIME_MJS: &str = include_str!("../assets/challenge/runtime.mjs");
 const WORKER_MJS: &str = include_str!("../assets/challenge/worker.mjs");
 const GPU_MJS: &str = include_str!("../assets/challenge/gpu.mjs");
-const SOLVER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/solver.wasm"));
 
-/// The runtime URL the challenge page loads.
-pub static RUNTIME_URL: LazyLock<String> = LazyLock::new(|| {
+/// Digest of every challenge asset, so a new build never runs a cached
+/// worker against a fresh module.
+pub static ASSET_VERSION: LazyLock<String> = LazyLock::new(|| {
    let mut ctx = digest::Context::new(&digest::SHA256);
    for asset in [
       RUNTIME_MJS.as_bytes(),
       WORKER_MJS.as_bytes(),
       GPU_MJS.as_bytes(),
-      SOLVER_WASM,
+      STATIC_WASM,
    ] {
       ctx.update(asset);
    }
-   let version = HEXLOWER.encode(&ctx.finish().as_ref()[..8]);
-   format!("/__bagel/static/runtime.mjs?v={version}")
+   HEXLOWER.encode(&ctx.finish().as_ref()[..8])
 });
+
+/// The runtime URL the challenge page loads.
+pub static RUNTIME_URL: LazyLock<String> =
+   LazyLock::new(|| format!("/__bagel/static/runtime.mjs?v={}", *ASSET_VERSION));
 
 /// The endpoints bagel answers itself, under a prefix no origin owns.
 enum Internal {
@@ -150,7 +157,14 @@ pub async fn dispatch(shared: &SharedState, addr: SocketAddr, req: Request) -> R
       Internal::Gpu if readable => {
          asset(GPU_MJS.as_bytes(), "application/javascript; charset=utf-8")
       },
-      Internal::Solver if readable => asset(SOLVER_WASM, "application/wasm"),
+      Internal::Solver if readable => {
+         let state = shared.load();
+         serve_solver(
+            state.runtime.solver_variants.as_deref(),
+            query_param(req.uri(), "variant"),
+            &req,
+         )
+      },
       Internal::Beacon(id) if readable => handle_beacon(shared, &id, &req),
       Internal::Css
       | Internal::Runtime

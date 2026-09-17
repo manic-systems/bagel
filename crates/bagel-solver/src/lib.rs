@@ -8,3 +8,4 @@ pub mod scratch;
 pub mod sha256;
 
 #[cfg(target_arch = "wasm32")] mod exports;
+#[cfg(feature = "host")] pub mod host;

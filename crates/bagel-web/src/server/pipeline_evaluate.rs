@@ -64,6 +64,7 @@ use crate::{
          smear_response,
       },
    },
+   solver_delivery::issue as issue_solver,
    state::StateInner,
    tag_fetcher,
    template,
@@ -502,6 +503,10 @@ async fn evaluate_challenge_action(
       ctx.strings = &eval.state.config.strings;
       ctx.links = &eval.state.config.links;
       ctx.logo = eval.state.config.challenge_template_logo.as_deref();
+
+      if matches!(reg.runtime, ChallengeRuntime::Pow(_)) {
+         ctx.solver_url = issue_solver(eval.state.runtime.solver_variants.as_deref());
+      }
 
       // Check mode injects a challenge fragment into the proxied response.
       if continue_after_issue && let Some(widget) = reg.runtime.embed_widget(&ctx) {

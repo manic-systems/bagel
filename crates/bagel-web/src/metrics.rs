@@ -45,6 +45,11 @@ pub fn init_metrics() {
       "Proofs of work accepted by challenge and the level they were sealed at"
    );
    describe_counter!("bagel_beacon_total", "Render beacons fetched by kind");
+   describe_counter!(
+      "bagel_solver_issued_total",
+      "Solver issuance by source or fallback reason"
+   );
+   describe_counter!("bagel_solver_served_total", "Solver responses by source");
 }
 
 pub fn record_pow_verified(site: &str, challenge: &str, level: u32) {

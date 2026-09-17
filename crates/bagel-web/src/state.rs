@@ -24,6 +24,7 @@ use ring::{
    },
 };
 use tokio::sync::Semaphore;
+use vela::delivery::pool::Pool;
 
 use crate::{
    SourceNetwork,
@@ -34,6 +35,7 @@ use crate::{
    cache::FileCache,
    challenge::{
       ChallengeRegistry,
+      ChallengeRuntime,
       pending::PendingChallenges,
    },
    config::{
@@ -68,6 +70,7 @@ use crate::{
       condition,
       scoring::ScoringState,
    },
+   solver_delivery,
    tag_fetcher::HtmlTag,
    template::Theme,
    tls::validate_bind,
@@ -124,6 +127,7 @@ pub struct Runtime {
    /// Per-session render and request-shape records, shared across reloads.
    pub visits:             Arc<VisitTracker>,
    pub pending_challenges: Arc<PendingChallenges>,
+   pub solver_variants:    Option<Arc<Pool>>,
    /// Shared across reloads when its inputs are unchanged.
    pub poison:             Arc<PoisonStore>,
    /// Carried across reloads when the renderer config is unchanged.
@@ -492,6 +496,19 @@ impl StateInner {
          |previous| Arc::clone(&previous.runtime.pending_challenges),
       );
 
+      let solver_variants =
+         if let Some(pool) = prev.and_then(|previous| previous.runtime.solver_variants.as_ref()) {
+            Some(Arc::clone(pool))
+         } else if challenges
+            .challenges
+            .values()
+            .any(|registration| matches!(registration.runtime, ChallengeRuntime::Pow(_)))
+         {
+            solver_delivery::start().await
+         } else {
+            None
+         };
+
       let deceiver = prev
          .filter(|prev| prev.config.deception == config.deception)
          .map_or_else(
@@ -614,6 +631,7 @@ impl StateInner {
             census,
             visits,
             pending_challenges,
+            solver_variants,
             poison,
             renderers,
             #[cfg(feature = "fcrdns")]

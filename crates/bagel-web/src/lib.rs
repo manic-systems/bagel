@@ -2,10 +2,7 @@ pub mod body;
 pub mod cache;
 pub mod challenge;
 pub mod claim;
-/// Gated because it is the only user of `hickory-resolver`, which a config
-/// with no `crawlers` block never reaches.
-#[cfg(feature = "fcrdns")]
-pub mod crawler;
+#[cfg(feature = "fcrdns")] pub mod crawler;
 pub mod error;
 pub mod fingerprint;
 pub mod host;
@@ -17,9 +14,7 @@ pub mod proxy;
 pub mod routes;
 pub mod rule;
 pub mod server;
-#[cfg(test)]
-#[path = "../solver.rs"]
-mod solver;
+pub mod solver_delivery;
 pub mod state;
 
 mod state_validation;

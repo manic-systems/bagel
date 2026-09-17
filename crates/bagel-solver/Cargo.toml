@@ -11,3 +11,9 @@ crate-type = [ "rlib" ]
 
 [lints]
 workspace = true
+
+[features]
+host = [ "dep:vela" ]
+
+[dependencies]
+vela = { optional = true, workspace = true }

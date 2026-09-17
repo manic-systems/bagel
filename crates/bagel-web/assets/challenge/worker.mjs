@@ -1,5 +1,4 @@
 const VERSION = new URL(import.meta.url).search;
-const MODULE = `/__bagel/static/solver.wasm${VERSION}`;
 const GPU = `/__bagel/static/gpu.mjs${VERSION}`;
 const SLICE_MS = 40;
 
@@ -100,8 +99,10 @@ self.onmessage = async ({ data }) => {
   self.onmessage = null;
 
   try {
-    const handoff = decode(data);
-    const { instance } = await WebAssembly.instantiateStreaming(fetch(MODULE));
+    const handoff = decode(data.payload);
+    const { instance } = await WebAssembly.instantiateStreaming(
+      fetch(data.solver),
+    );
     const { memory, buf, unpack, key, solve, seal } = instance.exports;
     const base = buf();
     const view = () => new Uint8Array(memory.buffer);

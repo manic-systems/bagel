@@ -20,10 +20,10 @@ etcetera                    = "0.11.0"
 flate2                      = "1.1.10"
 futures                     = "0.3.34"
 hickory-resolver            = "0.26.3"
+httlib-huffman              = "0.3.4"
 http                        = "1.5.0"
 http-body                   = "1.1.0"
 http-body-util              = "0.1.5"
-httlib-huffman              = "0.3.4"
 httparse                    = "1.10.1"
 hyper                       = { features = [ "http1", "http2", "server", "client" ], version = "1.11.1" }
 hyper-rustls                = { default-features = false, features = [ "http1", "native-tokio", "tls12", "ring" ], version = "0.27.9" }
@@ -70,7 +70,7 @@ bagel-runtime   = { path = "crates/bagel-runtime" }
 bagel-solver    = { path = "crates/bagel-solver" }
 bagel-traps     = { path = "crates/bagel-traps" }
 bagel-web       = { path = "crates/bagel-web" }
-vela            = { package = "vela-wasm", version = "0.1.0" }
+vela            = { package = "vela-wasm", version = "0.2.0" }
 
 [profile.release]
 codegen-units = 1
@@ -154,7 +154,7 @@ std_instead_of_alloc            = "allow"
 std_instead_of_core             = "allow"
 string_slice                    = "allow"
 too_many_lines                  = "allow"
-unused_trait_names              = "allow"
 unseparated_literal_suffix      = "allow"
+unused_trait_names              = "allow"
 unwrap_used                     = "allow"
 wildcard_enum_match_arm         = "allow"

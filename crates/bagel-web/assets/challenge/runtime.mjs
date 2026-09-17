@@ -49,7 +49,7 @@ async function run(host) {
         reject(new Error("Challenge worker failed"));
       };
       worker.onmessageerror = () => reject(new Error("Invalid challenge worker message"));
-      worker.postMessage(host.dataset.p);
+      worker.postMessage({ payload: host.dataset.p, solver: host.dataset.s });
     });
 
     const resp = await fetch(host.dataset.v, {
@@ -82,7 +82,7 @@ function mount() {
   const container = document.getElementById("bagel-challenge");
   for (const host of document.querySelectorAll("bagel-challenge")) {
     if (container && container !== host && !container.contains(host)) container.appendChild(host);
-    if (host.dataset.p && host.dataset.v && !completed.has(host)) run(host);
+    if (host.dataset.p && host.dataset.v && host.dataset.s && !completed.has(host)) run(host);
   }
 }
 
