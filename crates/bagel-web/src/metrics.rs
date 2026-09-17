@@ -50,6 +50,14 @@ pub fn init_metrics() {
       "Solver issuance by source or fallback reason"
    );
    describe_counter!("bagel_solver_served_total", "Solver responses by source");
+   describe_counter!(
+      "bagel_requests_total",
+      "Policy requests by effective action"
+   );
+}
+
+pub fn record_request(site: &str, action: &'static str) {
+   counter!("bagel_requests_total", "site" => site.to_owned(), "action" => action).increment(1);
 }
 
 pub fn record_pow_verified(site: &str, challenge: &str, level: u32) {

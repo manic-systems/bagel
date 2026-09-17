@@ -320,6 +320,7 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       },
    };
 
+   bmetrics::record_request(&host, effective_action);
    if let Some(ref result) = score_result {
       bmetrics::record_scoring_decision(
          &host,
