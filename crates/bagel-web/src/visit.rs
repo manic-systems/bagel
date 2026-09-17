@@ -106,7 +106,8 @@ const fn current_bucket(now: u64) -> u64 {
 /// The style block and host element appended to a proxied page.
 ///
 /// The positive image loads only once styles resolve and a box exists, and
-/// the negative one sits under a media query no browser evaluates true.
+/// the negative one sits under `not all`, which no viewport makes true. A
+/// width query would flip in a zero-width prerender.
 #[must_use]
 pub fn beacon_fragment(server_key: &[u8], session: &[u8; 32], host: &str, now: u64) -> String {
    let bucket = current_bucket(now);
@@ -114,11 +115,10 @@ pub fn beacon_fragment(server_key: &[u8], session: &[u8; 32], host: &str, now: u
    let negative = beacon_id(server_key, session, host, bucket, BeaconKind::Negative);
    let class = &positive[..8];
    format!(
-      "<style>@media \
-       (min-width:1px){{.b{class}::after{{content:\"\";position:absolute;width:1px;height:1px;\
-       opacity:0;background:url({BEACON_PREFIX}{positive}.svg)}}}}@media \
-       (max-width:0px){{.b{class}::before{{content:\"\";background:url({BEACON_PREFIX}{negative}.\
-       svg)}}}}</style><i class=\"b{class}\"></i>"
+      "<style>.b{class}::after{{content:\"\";position:absolute;width:1px;height:1px;opacity:0;\
+       background:url({BEACON_PREFIX}{positive}.svg)}}@media not \
+       all{{.b{class}::before{{content:\"\";background:url({BEACON_PREFIX}{negative}.svg)}}}}</\
+       style><i class=\"b{class}\"></i>"
    )
 }
 
