@@ -42,6 +42,7 @@ use crate::{
    },
    challenge::{
       RequestChallengeState,
+      token::unix_timestamp,
       url::strip_bagel_params,
    },
    fingerprint::{
@@ -445,11 +446,12 @@ fn request_context(
 
    let mut ctx = ConditionContext::from_request(req);
    host.clone_into(&mut ctx.host);
+   let now = unix_timestamp();
    ctx.pow_level = challenge_state.token.as_ref().and_then(|token| {
       token
          .state
          .values()
-         .filter(|pass| pass.ok && pass.level > 0)
+         .filter(|pass| pass.ok && pass.level > 0 && pass.exp > now)
          .map(|pass| pass.level)
          .max()
    });
