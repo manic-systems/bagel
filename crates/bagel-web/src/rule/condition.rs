@@ -317,6 +317,7 @@ impl ConditionContext {
          Dynamic::from(visit.is_some_and(|snap| snap.greedy)),
       );
       visit_map.insert("documents".into(), count(visit.map(|snap| snap.documents)));
+      visit_map.insert("pages".into(), count(visit.map(|snap| snap.pages)));
       visit_map.insert("assets".into(), count(visit.map(|snap| snap.assets)));
       scope.push_constant("visit", visit_map);
 

@@ -101,7 +101,7 @@ The rest are maps.
 | `claim`    | Five keys, listed below         | The browser the user agent claims to be                                    |
 | `census`   | Four keys, listed below         | How common this claim and transport fingerprint pairing is                 |
 | `solves`   | `available`, `10m`, `60m`       | Proof-of-work passes for this host and source network                      |
-| `visit`    | Five keys, listed below         | What this clearance session has done with the pages it was served          |
+| `visit`    | Six keys, listed below          | What this clearance session has done with the pages it was served          |
 | `probe`    | `available`, `profile`          | Environment profile the solver sealed into the clearance token             |
 | `pow`      | `available`, `level`            | Highest proof-of-work level among the token's passes                       |
 | `poison`   | `returned`                      | True when a maze on this host holds an active entry for the source network |
@@ -444,11 +444,14 @@ visit["available"]
 visit["rendered"]
 visit["greedy"]
 visit["documents"]
+visit["pages"]
 visit["assets"]
 ```
 
 `documents` counts requests whose `sec-fetch-dest` is `document` or absent,
-`assets` the rest. `rendered` and `greedy` come from beacons.
+`assets` the rest. `rendered` and `greedy` come from beacons. `pages` counts
+documents like `documents` but never resets, so it reads as the session's
+page rate over the hour.
 
 `action="beacon"` continues to the next rule and appends a style block and
 one empty element to proxied, uncompressed HTML. The block holds two image
@@ -766,6 +769,7 @@ fields.
 - visit_rendered
 - visit_greedy
 - visit_documents
+- visit_pages
 - visit_assets
 - probe
 - pow_level

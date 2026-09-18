@@ -20,6 +20,8 @@ pub struct VisitSnapshot {
    /// Documents served since the session last rendered one, or ever when it
    /// never has.
    pub documents: u32,
+   /// Documents served in the window, never reset by a render.
+   pub pages:     u32,
    /// Requests whose `sec-fetch-dest` named a subresource.
    pub assets:    u32,
    /// The session fetched a positive beacon, so a style engine ran.
@@ -48,6 +50,7 @@ impl VisitTracker {
       let mut record = self.records.get(&session).unwrap_or_default();
       if document {
          record.documents = record.documents.saturating_add(1);
+         record.pages = record.pages.saturating_add(1);
       } else {
          record.assets = record.assets.saturating_add(1);
       }

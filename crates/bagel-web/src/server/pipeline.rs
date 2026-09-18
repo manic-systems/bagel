@@ -354,6 +354,7 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       visit_rendered = ctx.visit.map(|visit| visit.rendered),
       visit_greedy = ctx.visit.map(|visit| visit.greedy),
       visit_documents = ctx.visit.map(|visit| visit.documents),
+      visit_pages = ctx.visit.map(|visit| visit.pages),
       visit_assets = ctx.visit.map(|visit| visit.assets),
       claim = ctx.claim.map(|claim| claim.key()),
       census_claim_networks = ctx.census.map(|snap| snap.claim_networks),
