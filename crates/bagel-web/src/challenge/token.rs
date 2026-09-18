@@ -55,6 +55,9 @@ pub struct TokenChallenge {
    /// Difficulty this pass was verified at, zero for challenges without one.
    #[serde(default, skip_serializing_if = "is_zero")]
    pub level:  u32,
+   /// TLS stack the pass was verified under, empty when none was known.
+   #[serde(default, skip_serializing_if = "String::is_empty")]
+   pub stack:  String,
    pub ok:     bool,
    /// Expiry time (Unix epoch seconds).
    pub exp:    i64,

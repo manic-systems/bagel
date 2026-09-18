@@ -190,6 +190,16 @@ impl CloudflareFingerprint {
       self.ciphers.as_ref().map(|hash| hex_encode(&hash.0))
    }
 
+   /// The stacks the reference table allows for the advertised list.
+   #[must_use]
+   pub fn families(&self) -> Option<&'static [&'static str]> {
+      self
+         .ciphers
+         .as_ref()
+         .and_then(|hash| reference::lookup(&hash.0))
+         .map(|known| known.families)
+   }
+
    pub fn policy_fields(&self, fields: &mut HashMap<String, String>) {
       let complete =
          self.ciphers.is_some() && self.extensions.is_some() && self.hello_length.is_some();
@@ -223,7 +233,7 @@ impl CloudflareFingerprint {
          .as_ref()
          .and_then(|hash| reference::lookup(&hash.0))
       {
-         if let Some(family) = known.family {
+         if let Some(family) = known.family() {
             fields.insert("edge_family".to_owned(), family.to_owned());
          }
          fields.insert("edge_list".to_owned(), known.list.to_owned());

@@ -427,6 +427,13 @@ path.
 signal "cpu-path" weight=20 condition=(rhai)#"pow["level"] < 26"#
 ```
 
+A pass also records the TLS stack that verified it, the native JA4 or the
+reference families behind `fp["edge_ciphers_sha1"]`, and only a request on a
+stack sharing a family may use it. Chrome moving from h2 to QUIC keeps its
+pass because the shared QUIC list lists both browsers, while a cookie carried
+from a browser into curl is challenged again. A list the table does not know
+seals no stack, since GREASE would make the hash rotate per connection.
+
 ## Visit shape and render beacons
 
 Everything above asks what a client is. `visit` records what it does, keyed

@@ -64,6 +64,7 @@ use crate::{
       Theme,
       Widget,
    },
+   tls::TlsFingerprint,
 };
 
 /// A registered challenge instance.
@@ -498,6 +499,7 @@ impl RequestChallengeState {
          key: key.to_vec(),
          result: Vec::new(),
          level: 0,
+         stack: String::new(),
          ok: true,
          exp,
          nbf: now,
@@ -516,13 +518,15 @@ impl RequestChallengeState {
    }
 
    /// A pass sealed at a higher level than `level` still counts, so a client
-   /// that solved the hard variant is not asked again for the easy one.
+   /// that solved the hard variant is not asked again for the easy one. A
+   /// pass sealed under a TLS stack only counts from a request on that stack.
    #[must_use]
    pub fn is_challenge_passed(
       &self,
       challenge_name: &str,
       expected_key: &ChallengeKey,
       level: u32,
+      stack: Option<&str>,
    ) -> bool {
       if let Some(ref token) = self.token
          && let Some(tc) = token.state.get(challenge_name)
@@ -531,6 +535,7 @@ impl RequestChallengeState {
          return tc.ok
             && tc.exp > unix_timestamp()
             && tc.level >= level
+            && (tc.stack.is_empty() || TlsFingerprint::stack_matches(&tc.stack, stack))
             && tc.key.len() == expected_key.len()
             && constant_time_eq::constant_time_eq(&tc.key, expected_key);
       }

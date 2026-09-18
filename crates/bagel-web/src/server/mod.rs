@@ -13,6 +13,9 @@ pub use listen::{
    reload_shared,
    serve,
 };
-pub(crate) use pipeline::handle_request;
+pub(crate) use pipeline::{
+   capture_client_tls,
+   handle_request,
+};
 
 #[cfg(test)] mod tests;

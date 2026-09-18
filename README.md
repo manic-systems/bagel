@@ -160,6 +160,9 @@ of a wasm spinner.
 
 Each challenge key is bound to its session and request identity, and
 redemption consumes it once, so a replayed proof can't issue another pass.
+A pass is also sealed with the TLS stack that verified it, the native JA4 or
+the family behind the edge's cipher list, so a token solved in a browser and
+copied into a scraping client meets the challenge again on the first request.
 
 ## Dashboard
 

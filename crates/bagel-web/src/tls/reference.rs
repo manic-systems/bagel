@@ -13,10 +13,21 @@ use ring::digest::{
 /// GREASE value for stacks that prepend one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reference {
-   /// The stack this list belongs to, [`None`] when two stacks share it.
-   pub family: Option<&'static str>,
-   pub list:   &'static str,
-   pub grease: bool,
+   /// Every stack that could have sent this list, more than one when stacks
+   /// share it.
+   pub families: &'static [&'static str],
+   pub list:     &'static str,
+   pub grease:   bool,
+}
+
+impl Reference {
+   #[must_use]
+   pub const fn family(&self) -> Option<&'static str> {
+      match self.families {
+         [one] => Some(one),
+         _ => None,
+      }
+   }
 }
 
 const GREASE: [u16; 16] = [
@@ -26,36 +37,36 @@ const GREASE: [u16; 16] = [
 
 // Lists follow the browser profiles maintained in wreq-util, which tracks
 // what BoringSSL, NSS and Apple's stack put on the wire per release.
-const LISTS: &[(&str, &str, &[u16])] = &[
-   ("chromium", "chromium", &[
+const LISTS: &[(&[&str], &str, &[u16])] = &[
+   (&["chromium"], "chromium", &[
       0x1301, 0x1302, 0x1303, 0xC02B, 0xC02F, 0xC02C, 0xC030, 0xCCA9, 0xCCA8, 0xC013, 0xC014,
       0x009C, 0x009D, 0x002F, 0x0035,
    ]),
-   ("chromium", "chromium-tls13", &[0x1301, 0x1302, 0x1303]),
-   ("firefox", "firefox", &[
+   (&["chromium"], "chromium-tls13", &[0x1301, 0x1302, 0x1303]),
+   (&["firefox"], "firefox", &[
       0x1301, 0x1303, 0x1302, 0xC02B, 0xC02F, 0xCCA9, 0xCCA8, 0xC02C, 0xC030, 0xC013, 0xC014,
       0x009C, 0x009D, 0x002F, 0x0035,
    ]),
-   ("firefox", "firefox-legacy", &[
+   (&["firefox"], "firefox-legacy", &[
       0x1301, 0x1303, 0x1302, 0xC02B, 0xC02F, 0xCCA9, 0xCCA8, 0xC02C, 0xC030, 0xC00A, 0xC009,
       0xC013, 0xC014, 0x009C, 0x009D, 0x002F, 0x0035,
    ]),
-   ("firefox", "firefox-tls13", &[0x1301, 0x1303, 0x1302]),
-   ("safari", "safari", &[
+   (&["firefox"], "firefox-tls13", &[0x1301, 0x1303, 0x1302]),
+   (&["safari"], "safari", &[
       0x1302, 0x1303, 0x1301, 0xC02C, 0xC02B, 0xCCA9, 0xC030, 0xC02F, 0xCCA8, 0xC00A, 0xC009,
       0xC014, 0xC013, 0x009D, 0x009C, 0x0035, 0x002F, 0xC008, 0xC012, 0x000A,
    ]),
-   ("safari", "safari-legacy", &[
+   (&["safari"], "safari-legacy", &[
       0x1301, 0x1302, 0x1303, 0xC02C, 0xC02B, 0xCCA9, 0xC030, 0xC02F, 0xCCA8, 0xC00A, 0xC009,
       0xC014, 0xC013, 0x009D, 0x009C, 0x0035, 0x002F, 0xC008, 0xC012, 0x000A,
    ]),
-   ("safari", "safari-old", &[
+   (&["safari"], "safari-old", &[
       0x1301, 0x1302, 0x1303, 0xC02C, 0xC02B, 0xCCA9, 0xC030, 0xC02F, 0xCCA8, 0xC024, 0xC023,
       0xC00A, 0xC009, 0xC028, 0xC027, 0xC014, 0xC013, 0x009D, 0x009C, 0x003D, 0x003C, 0x0035,
       0x002F, 0xC008, 0xC012, 0x000A,
    ]),
-   ("safari", "safari-tls13", &[0x1302, 0x1303, 0x1301]),
-   ("okhttp", "okhttp", &[
+   (&["safari"], "safari-tls13", &[0x1302, 0x1303, 0x1301]),
+   (&["okhttp"], "okhttp", &[
       0x1301, 0x1302, 0x1303, 0xC02B, 0xC02F, 0xC02C, 0xC030, 0xCCA9, 0xCCA8, 0xC013, 0xC014,
       0x009C, 0x009D, 0x002F, 0x0035, 0x000A,
    ]),
@@ -64,19 +75,24 @@ const LISTS: &[(&str, &str, &[u16])] = &[
 // Over QUIC Chrome sends its three TLS 1.3 suites without a GREASE value,
 // while Safari 18 sends the same three suites with one.
 const SHARED_WITH_GREASE: &str = "chromium-tls13";
+const SHARED_FAMILIES: &[&str] = &["chromium", "safari"];
 
 static TABLE: LazyLock<HashMap<[u8; 20], Reference>> = LazyLock::new(|| {
    let mut table = HashMap::new();
-   for &(family, list, ciphers) in LISTS {
+   for &(families, list, ciphers) in LISTS {
       table.insert(sha1(None, ciphers), Reference {
-         family: Some(family),
+         families,
          list,
          grease: false,
       });
-      let grease_family = (list != SHARED_WITH_GREASE).then_some(family);
+      let grease_families = if list == SHARED_WITH_GREASE {
+         SHARED_FAMILIES
+      } else {
+         families
+      };
       for grease in GREASE {
          table.insert(sha1(Some(grease), ciphers), Reference {
-            family: grease_family,
+            families: grease_families,
             list,
             grease: true,
          });

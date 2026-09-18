@@ -56,7 +56,10 @@ use crate::{
    host::CanonicalHost,
    ip_network_prefix,
    metrics,
-   server::handle_request,
+   server::{
+      capture_client_tls,
+      handle_request,
+   },
    solver_delivery::{
       STATIC_WASM,
       serve as serve_solver,
@@ -65,6 +68,7 @@ use crate::{
       SharedState,
       StateInner,
    },
+   tls::TlsFingerprint,
    visit::{
       self,
       BEACON_PREFIX,
@@ -133,13 +137,16 @@ fn internal_route(path: &str) -> Option<Internal> {
 
 /// Route one request, preferring the internal endpoints over the main
 /// pipeline so no policy can shadow a verify.
-pub async fn dispatch(shared: &SharedState, addr: SocketAddr, req: Request) -> Response {
+pub async fn dispatch(shared: &SharedState, addr: SocketAddr, mut req: Request) -> Response {
    let Some(route) = internal_route(req.uri().path()) else {
       return handle_request(shared, addr, req).await;
    };
 
    let readable = req.method() == Method::GET || req.method() == Method::HEAD;
    let posted = req.method() == Method::POST;
+   if matches!(route, Internal::Verify(_)) {
+      capture_client_tls(&shared.load(), addr, &mut req);
+   }
    match route {
       Internal::Css if readable => asset(WIDGET_CSS.as_bytes(), "text/css; charset=utf-8"),
       Internal::Runtime if readable => {
@@ -304,11 +311,16 @@ fn handle_verify(shared: &SharedState, challenge_name: &str, req: &Request) -> R
       return body::text(StatusCode::BAD_REQUEST, "challenge needs a posted solution");
    }
 
+   let stack = req
+      .extensions()
+      .get::<TlsFingerprint>()
+      .and_then(TlsFingerprint::stack);
    let client = Client {
       state:   &state,
       headers: req.headers(),
       host:    &host,
       ip:      client_ip,
+      stack:   stack.as_deref(),
    };
    let binding = match client.admit(challenge_name) {
       Ok(binding) => binding,
@@ -353,6 +365,7 @@ struct Client<'a> {
    headers: &'a header::HeaderMap,
    host:    &'a CanonicalHost,
    ip:      IpAddr,
+   stack:   Option<&'a str>,
 }
 
 impl Client<'_> {
@@ -418,6 +431,7 @@ fn seal_pass(
       headers,
       host,
       ip: client_ip,
+      stack,
    } = *who;
    let now = unix_timestamp();
    let expiry = now.saturating_add(duration.as_secs() as i64);
@@ -440,6 +454,7 @@ fn seal_pass(
          key: challenge_key.to_vec(),
          result,
          level,
+         stack: stack.unwrap_or_default().to_owned(),
          ok: true,
          exp: expiry,
          nbf: now,
@@ -481,11 +496,16 @@ async fn handle_pow_verify(shared: &SharedState, challenge_name: &str, req: Requ
    };
 
    let (parts, incoming) = req.into_parts();
+   let stack = parts
+      .extensions
+      .get::<TlsFingerprint>()
+      .and_then(TlsFingerprint::stack);
    let client = Client {
       state:   &state,
       headers: &parts.headers,
       host:    &host,
       ip:      client_ip,
+      stack:   stack.as_deref(),
    };
    let binding = match client.admit(challenge_name) {
       Ok(binding) => binding,

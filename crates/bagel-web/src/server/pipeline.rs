@@ -85,32 +85,9 @@ use crate::{
    },
 };
 
-/// Main request handler: evaluate challenges, rules, then proxy to backend.
-pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Request) -> Response {
-   let state = shared.load();
-
-   req.extensions_mut().insert(addr);
-   let drop_handle = req.extensions().get::<DropHandle>().cloned();
-
-   let uri_authority = req.uri().authority().map(|auth| auth.as_str().to_owned());
-   let header_host = req
-      .headers()
-      .get(header::HOST)
-      .and_then(|hv| hv.to_str().ok())
-      .map(str::to_owned);
-   let canonical = match canonicalize_authority(uri_authority.as_deref(), header_host.as_deref()) {
-      Ok(canonical) => canonical,
-      Err(reason) => {
-         tracing::debug!(reason, "rejected request authority");
-         return body::text(StatusCode::BAD_REQUEST, "invalid request authority\n");
-      },
-   };
-   let host = canonical.as_str().to_owned();
-
-   let resolved_ip = state.client_ip(addr.ip(), &req);
-   let client_ip = Some(resolved_ip);
-   req.extensions_mut()
-      .insert(SocketAddr::new(resolved_ip, addr.port()));
+/// Read what a trusted proxy relayed about the client handshake into the
+/// request extensions and strip the carrying headers.
+pub fn capture_client_tls(state: &StateInner, addr: SocketAddr, req: &mut Request) {
    if let Some(forwarded) = &state.config.client_tls_header {
       let name = forwarded.name();
       let transport_ip = req.extensions().get::<ConnectionPeer>().map_or_else(
@@ -148,6 +125,35 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       req.headers_mut().remove(name);
    }
    req.headers_mut().remove(ORIGIN_TOKEN_HEADER);
+}
+
+/// Main request handler: evaluate challenges, rules, then proxy to backend.
+pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Request) -> Response {
+   let state = shared.load();
+
+   req.extensions_mut().insert(addr);
+   let drop_handle = req.extensions().get::<DropHandle>().cloned();
+
+   let uri_authority = req.uri().authority().map(|auth| auth.as_str().to_owned());
+   let header_host = req
+      .headers()
+      .get(header::HOST)
+      .and_then(|hv| hv.to_str().ok())
+      .map(str::to_owned);
+   let canonical = match canonicalize_authority(uri_authority.as_deref(), header_host.as_deref()) {
+      Ok(canonical) => canonical,
+      Err(reason) => {
+         tracing::debug!(reason, "rejected request authority");
+         return body::text(StatusCode::BAD_REQUEST, "invalid request authority\n");
+      },
+   };
+   let host = canonical.as_str().to_owned();
+
+   let resolved_ip = state.client_ip(addr.ip(), &req);
+   let client_ip = Some(resolved_ip);
+   req.extensions_mut()
+      .insert(SocketAddr::new(resolved_ip, addr.port()));
+   capture_client_tls(&state, addr, &mut req);
 
    let Some(backend) = state.runtime.backends.select(&host) else {
       tracing::debug!(host, "no backend for host");

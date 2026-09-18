@@ -152,6 +152,8 @@ pub struct ConditionContext {
    pub fp:               HashMap<String, String>,
    /// Stable transport identity behind `fp`, when any source supplied one.
    pub fp_identity:      Option<String>,
+   /// TLS stack a pass may be bound to, see [`TlsFingerprint::stack`].
+   pub stack:            Option<String>,
    /// Browser the user agent claims to be, `None` for tools and crawlers.
    pub claim:            Option<Claim>,
    /// Census counts for this claim and identity, `None` when either is
@@ -378,6 +380,7 @@ impl ConditionContext {
 
       let tls = req.extensions().get::<TlsFingerprint>();
       let fp_identity = tls.and_then(TlsFingerprint::identity);
+      let stack = tls.and_then(TlsFingerprint::stack);
       let mut fp = tls.map_or_else(
          || TlsFingerprint::default().policy_fields(),
          TlsFingerprint::policy_fields,
@@ -405,6 +408,7 @@ impl ConditionContext {
          headers,
          fp,
          fp_identity,
+         stack,
          census: None,
          probe: None,
          probe_census: None,

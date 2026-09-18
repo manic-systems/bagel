@@ -411,12 +411,13 @@ async fn evaluate_challenge_action(
          ChallengeRuntime::Pow(ref pow) => ca.difficulty.unwrap_or(pow.difficulty),
          _ => 0,
       };
+      let stack = eval.ctx.stack.as_deref();
       if eval
          .challenge_state
-         .is_challenge_passed(challenge_name, &challenge_key, level)
+         .is_challenge_passed(challenge_name, &challenge_key, level, stack)
          || eval
             .challenge_state
-            .is_challenge_passed(challenge_name, &previous_key, level)
+            .is_challenge_passed(challenge_name, &previous_key, level, stack)
       {
          tracing::debug!(
             rule = rule_name,

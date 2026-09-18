@@ -73,6 +73,30 @@ impl TlsFingerprint {
       }
    }
 
+   /// The identity a pass is bound to, stable across one browser's
+   /// connections. A native hello gives its JA4 and the edge gives the
+   /// reference families of the list, joined by commas, so the shared QUIC
+   /// list still overlaps the browser that solved over h2. A list the table
+   /// does not know binds nothing, since GREASE rotates its hash.
+   #[must_use]
+   pub fn stack(&self) -> Option<String> {
+      match (&self.native, &self.cloudflare) {
+         (Capture::Complete(hello), _) => Some(format!("ja4:{}", hello.ja4)),
+         (_, Capture::Complete(edge)) => edge.families().map(|families| families.join(",")),
+         _ => None,
+      }
+   }
+
+   /// Whether a request may use a pass sealed under `bound`.
+   #[must_use]
+   pub fn stack_matches(bound: &str, current: Option<&str>) -> bool {
+      current.is_some_and(|current| {
+         bound
+            .split(',')
+            .any(|solved| current.split(',').any(|now| now == solved))
+      })
+   }
+
    #[must_use]
    pub fn policy_fields(&self) -> HashMap<String, String> {
       let native = !matches!(self.native, Capture::Unavailable);
