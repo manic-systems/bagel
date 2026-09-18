@@ -85,6 +85,15 @@ impl ChallengeRegistration {
          _ => self.duration,
       }
    }
+
+   /// Longest life any pass of this challenge can have, the step for its key
+   /// buckets so a GPU-tier pass is not orphaned when the hour rolls over.
+   #[must_use]
+   pub fn max_duration(&self) -> Duration {
+      self
+         .gpu_duration
+         .map_or(self.duration, |gpu| gpu.max(self.duration))
+   }
 }
 
 const MAX_CHALLENGE_DURATION_SECS: u64 = 365 * 24 * 60 * 60;

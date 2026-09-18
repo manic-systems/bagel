@@ -392,7 +392,7 @@ async fn evaluate_challenge_action(
          continue;
       };
 
-      let step = reg.duration.as_secs() as i64;
+      let step = reg.max_duration().as_secs() as i64;
       let expiry = bucket_expiry(now, step);
       let challenge_key = derive_challenge_key(
          challenge_name,
