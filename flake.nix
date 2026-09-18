@@ -44,6 +44,7 @@
         {
           inherit bagel;
           default = bagel;
+          dashboard = pkgs.callPackage ./nix/dashboard.nix { };
         }
       );
 
@@ -64,9 +65,15 @@
         system:
         let
           pkgs = pkgsFor system;
-          package = self.packages.${system}.bagel;
+          inherit (self.packages.${system}) bagel dashboard;
         in
-        { bagel = package; } // import ./nix/checks.nix { inherit pkgs package; }
+        {
+          inherit bagel;
+        }
+        // import ./nix/checks.nix {
+          inherit pkgs dashboard;
+          package = bagel;
+        }
       );
     };
 }

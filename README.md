@@ -159,6 +159,16 @@ of a wasm spinner.
 Each challenge key is bound to its session and request identity, and
 redemption consumes it once, so a replayed proof can't issue another pass.
 
+## Dashboard
+
+`contrib/grafana/bagel.json` is a Grafana dashboard over the exported metrics.
+It expects a Prometheus datasource and a scrape job named `bagel`. This can
+be imported as is.
+
+> [!NOTE]
+> For contributors, `nix/dashboard.nix` renders it and `nix flake check` fails
+> when the two drift.
+
 ## Build features
 
 ACME needs the `bagel-daemon` crate's `acme` feature and a TCP listener, and

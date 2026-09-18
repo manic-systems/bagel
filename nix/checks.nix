@@ -3,6 +3,7 @@
 {
   pkgs,
   package,
+  dashboard,
 }:
 let
   mazeConfig = pkgs.writeText "bagel-maze.kdl" /* kdl */ ''
@@ -47,4 +48,8 @@ in
         cmp ${../examples/bagel.kdl} "$out"
         bagel-daemon --config "$out" --check-config
       '';
+  dashboard-rendered = pkgs.runCommand "bagel-dashboard-rendered" { } ''
+    cmp ${../contrib/grafana/bagel.json} ${dashboard}
+    touch "$out"
+  '';
 }
