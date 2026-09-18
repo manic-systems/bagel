@@ -112,7 +112,7 @@ pub(super) async fn apply_candidate_action(action: &Action, eval: &mut Eval<'_>)
          )
       },
       Action::Report { .. } | Action::Lure { .. } | Action::Beacon => RuleOutcome::Continue,
-      other => dispatch_sub_action(other, eval),
+      other => dispatch_sub_action(other, eval).await,
    }
 }
 
@@ -572,7 +572,7 @@ async fn evaluate_challenge_action(
                "challenge failed"
             );
             if !continue_after_issue {
-               return dispatch_sub_action(&ca.fail_action, eval);
+               return dispatch_sub_action(&ca.fail_action, eval).await;
             }
          },
          IssueResult::Skip => {
@@ -588,12 +588,18 @@ async fn evaluate_challenge_action(
    if continue_after_issue {
       RuleOutcome::Continue
    } else {
-      dispatch_sub_action(&ca.pass_action, eval)
+      dispatch_sub_action(&ca.pass_action, eval).await
    }
 }
 
-fn dispatch_sub_action(action: &Action, eval: &Eval<'_>) -> RuleOutcome {
+async fn dispatch_sub_action(action: &Action, eval: &Eval<'_>) -> RuleOutcome {
    match action {
+      Action::Tarpit { maze } => {
+         bmetrics::record_action(eval.host, Action::TARPIT);
+         RuleOutcome::Handled(
+            tarpit_response(eval.state, maze, eval.host, eval.ctx.remote_ip).await,
+         )
+      },
       Action::Deny { code } => {
          bmetrics::record_action(eval.host, Action::DENY);
          deny_response(eval.state, *code)

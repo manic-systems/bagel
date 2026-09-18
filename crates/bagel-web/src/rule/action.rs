@@ -200,9 +200,15 @@ impl Action {
                challenges:  challenges.to_vec(),
                http_code:   settings.http_code.unwrap_or(default_http_code),
                difficulty:  settings.difficulty,
-               pass_action: sub_action(settings.pass_action.as_deref(), Self::Pass, "pass")?,
+               pass_action: sub_action(
+                  settings.pass_action.as_deref(),
+                  settings.maze.as_deref(),
+                  Self::Pass,
+                  "pass",
+               )?,
                fail_action: sub_action(
                   settings.fail_action.as_deref(),
+                  settings.maze.as_deref(),
                   Self::Deny { code: 403 },
                   "fail",
                )?,
@@ -240,7 +246,12 @@ impl Action {
    }
 }
 
-fn sub_action(setting: Option<&str>, default: Action, kind: &str) -> Result<Box<Action>, String> {
+fn sub_action(
+   setting: Option<&str>,
+   maze: Option<&str>,
+   default: Action,
+   kind: &str,
+) -> Result<Box<Action>, String> {
    Ok(Box::new(match setting {
       None => default,
       Some(Action::PASS) => Action::Pass,
@@ -248,6 +259,14 @@ fn sub_action(setting: Option<&str>, default: Action, kind: &str) -> Result<Box<
       Some(Action::BLOCK) => Action::Block { code: 403 },
       Some(Action::DROP) => Action::Drop,
       Some(Action::SMEAR) => Action::Smear,
+      Some(Action::TARPIT) => {
+         let maze = maze
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| format!("tarpit {kind}-action requires a maze"))?;
+         Action::Tarpit {
+            maze: maze.to_owned(),
+         }
+      },
       Some(other) => return Err(format!("unknown {kind}-action '{other}'")),
    }))
 }

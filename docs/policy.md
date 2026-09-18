@@ -551,7 +551,10 @@ rule. A challenge threshold uses the existing challenge action parser and
 inherits the usual defaults when pass-action, fail-action or the HTTP code are
 omitted, so pass falls back to `pass`, fail falls back to `deny` with a 403,
 the code falls back to the global `challenge-http-code`, and at least one
-configured challenge is required.
+configured challenge is required. Either sub-action may be `pass`, `deny`,
+`block`, `drop`, `smear` or `tarpit`, and a tarpit sub-action takes the maze
+from the same rule or threshold, so a client that solves an expensive proof
+can be handed the maze rather than the origin.
 
 ## Rules and the candidate
 

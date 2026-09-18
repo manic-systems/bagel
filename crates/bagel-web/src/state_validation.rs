@@ -236,7 +236,7 @@ pub fn validate_tarpit_references(
 ) -> error::Result<()> {
    fn walk(rules: &[RuleState], mazes: &[MazeConfig]) -> error::Result<()> {
       for rule in rules {
-         if let Action::Tarpit { maze } | Action::Lure { maze } = &rule.action {
+         for maze in maze_references(&rule.action) {
             tarpit_maze_known(maze, mazes, &format!("rule '{}'", rule.name))?;
          }
          walk(&rule.children, mazes)?;
@@ -248,7 +248,7 @@ pub fn validate_tarpit_references(
    if let Some(scoring) = scoring {
       for card in &scoring.scorecards {
          for threshold in &card.thresholds {
-            if let Action::Tarpit { maze } = &threshold.action {
+            for maze in maze_references(&threshold.action) {
                tarpit_maze_known(
                   maze,
                   mazes,
@@ -260,6 +260,24 @@ pub fn validate_tarpit_references(
    }
 
    Ok(())
+}
+
+fn maze_references(action: &Action) -> Vec<&str> {
+   match action {
+      Action::Tarpit { maze } | Action::Lure { maze } => vec![maze],
+      Action::Challenge(ca) | Action::Check(ca) => {
+         [&ca.pass_action, &ca.fail_action]
+            .into_iter()
+            .filter_map(|sub| {
+               match sub.as_ref() {
+                  Action::Tarpit { maze } => Some(maze.as_str()),
+                  _ => None,
+               }
+            })
+            .collect()
+      },
+      _ => Vec::new(),
+   }
 }
 
 pub fn validate_proxy_backends(rules: &[RuleState], backends: &BackendPool) -> error::Result<()> {
