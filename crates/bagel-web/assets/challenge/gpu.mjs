@@ -123,7 +123,7 @@ export async function createGpuSolver() {
   }
 
   const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
+  if (!adapter || adapter.isFallbackAdapter || adapter.info?.architecture === "swiftshader") {
     return null;
   }
 
@@ -169,7 +169,7 @@ export async function createGpuSolver() {
   });
 
   return {
-    async solve(keyBytes, difficulty, onProgress) {
+    async solve(keyBytes, difficulty, onProgress, budgetMs = Infinity) {
       if (difficulty < 1 || difficulty > 32) {
         throw new RangeError("difficulty must be between 1 and 32");
       }
@@ -215,6 +215,7 @@ export async function createGpuSolver() {
       let hashesDone = 0n;
       let nonceStart = 0n;
       let winningNonce = null;
+      const started = performance.now();
 
       const uniformData = new Uint32Array(12);
       uniformData.set(keyWords, 0);
@@ -256,9 +257,14 @@ export async function createGpuSolver() {
             const foundHi = BigInt(readData[1]);
             const foundLo = BigInt(readData[2]);
             winningNonce = (foundHi << 32n) | foundLo;
-          } else {
-            nonceStart += BigInt(batchSize);
+            continue;
           }
+
+          const projectedMs = ((performance.now() - started) * 2 ** difficulty) / Number(hashesDone);
+          if (projectedMs > budgetMs) {
+            throw new Error("GPU adapter too slow for this difficulty");
+          }
+          nonceStart += BigInt(batchSize);
         }
       } finally {
         uniformBuffer.destroy();

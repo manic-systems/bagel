@@ -151,7 +151,9 @@ own setting. A pass is sealed at the difficulty it was verified at, and a gate
 accepts any pass at or above the level it asks for. `pow-sha256` may also
 carry `gpu-difficulty` and `gpu-duration`. A browser with WebGPU then searches
 the harder level in a compute shader and earns the longer token, everything
-else solves `difficulty` in wasm, and `pow["level"]` says which. A site that
+else solves `difficulty` in wasm, and `pow["level"]` says which. A software
+adapter such as SwiftShader, or one whose first batch projects past two
+seconds, is treated as no GPU so the harder level never lands on a CPU. A site that
 wants the GPU-sized proof from everyone sets `difficulty` to that number and
 `gpu-required=#true`, which shows a visitor without WebGPU a message instead
 of a wasm spinner.

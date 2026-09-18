@@ -417,7 +417,9 @@ with no rule to read out of the code and satisfy.
 `pow["level"]` is the highest difficulty among the token's passes. A
 `pow-sha256` challenge with `gpu-difficulty` offers two levels, and the level
 a token holds says which path solved it. Clients without WebGPU, Linux
-Firefox and Vanadium among them, land on the wasm path at `difficulty`, so a
+Firefox and Vanadium among them, and clients whose adapter is a software
+renderer or too slow to finish in about two seconds, land on the wasm path
+at `difficulty`, so a
 network that solves the base level many times an hour is a farm on the cheap
 path.
 

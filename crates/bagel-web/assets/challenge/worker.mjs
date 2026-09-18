@@ -1,6 +1,7 @@
 const VERSION = new URL(import.meta.url).search;
 const GPU = `/__bagel/static/gpu.mjs${VERSION}`;
 const SLICE_MS = 40;
+const GPU_BUDGET_MS = 2000;
 
 const decode = (text) =>
   Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (ch) =>
@@ -67,13 +68,13 @@ const probe = () => {
 const progress = (started) =>
   self.postMessage({ type: "progress", elapsed: performance.now() - started });
 
-async function solveOnGpu(keyBytes, difficulty, started) {
+async function solveOnGpu(keyBytes, difficulty, started, budgetMs) {
   if (!navigator.gpu) return null;
   try {
     const { createGpuSolver } = await import(GPU);
     const solver = await createGpuSolver();
     if (!solver) return null;
-    return await solver.solve(keyBytes, difficulty, () => progress(started));
+    return await solver.solve(keyBytes, difficulty, () => progress(started), budgetMs);
   } catch {
     return null;
   }
@@ -118,7 +119,8 @@ self.onmessage = async ({ data }) => {
     let found = null;
     if (gpuLevel > 0) {
       const keyBytes = view().slice(base, base + key());
-      found = await solveOnGpu(keyBytes, gpuLevel, started);
+      const budgetMs = gpuRequired ? Infinity : GPU_BUDGET_MS;
+      found = await solveOnGpu(keyBytes, gpuLevel, started, budgetMs);
       if (found !== null) level = gpuLevel;
     }
     if (found === null && gpuRequired) {
