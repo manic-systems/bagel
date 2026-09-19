@@ -4,7 +4,6 @@ description            = "Protocol parsing for Bagel: HTTP heads, PROXY protocol
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-authors.workspace      = true
 
 [dependencies]
 bagel-core.workspace = true

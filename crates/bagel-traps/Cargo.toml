@@ -4,7 +4,6 @@ description            = "Bagel trap signatures: path and user-agent classificat
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-authors.workspace      = true
 
 [dependencies]
 bagel-core.workspace = true

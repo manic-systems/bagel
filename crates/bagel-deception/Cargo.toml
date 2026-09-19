@@ -4,7 +4,6 @@ description            = "Deceptive response generation for Bagel: Markov chains
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-authors.workspace      = true
 
 [dependencies]
 rand.workspace    = true

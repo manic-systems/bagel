@@ -4,7 +4,6 @@ description            = "Bagel runtime: server, tarpit, proxy, state, firewall,
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-authors.workspace      = true
 
 [dependencies]
 bagel-admin.workspace                 = true

@@ -4,7 +4,6 @@ description            = "Bagel HTTP data plane: rules, scoring, challenges, maz
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-authors.workspace      = true
 
 [features]
 acme    = [ "dep:rustls-acme", "dep:futures" ]
