@@ -44,6 +44,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   cargoLock.lockFile = ../Cargo.lock;
   cargoTestFlags = [ "--workspace" ];
+  useNextest = true;
 
   strictDeps = true;
   nativeBuildInputs = [
