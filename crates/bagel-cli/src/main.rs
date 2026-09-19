@@ -1,10 +1,5 @@
 //! `bagel` admin CLI.
 
-#![expect(
-   clippy::missing_asserts_for_indexing,
-   reason = "the indexing is inside code the pound derive generates"
-)]
-
 use std::path::PathBuf;
 
 use anyhow::Context;

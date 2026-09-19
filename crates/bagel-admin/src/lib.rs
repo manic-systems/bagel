@@ -283,8 +283,7 @@ fn bar(frac: f64, width: usize) -> String {
 fn rel(ts: u64) -> String {
    let now = SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or_default();
+      .map_or_default(|d| d.as_secs());
    let secs = now.saturating_sub(ts);
    match secs {
       0..=59 => format!("{secs}s ago"),
