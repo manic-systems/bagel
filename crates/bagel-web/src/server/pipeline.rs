@@ -45,6 +45,7 @@ use crate::{
       token::unix_timestamp,
       url::strip_bagel_params,
    },
+   config::CustomTheme,
    fingerprint::{
       Capture,
       CaptureError,
@@ -245,6 +246,7 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
 
    let mut eval = crate::server::pipeline_evaluate::Eval {
       state:           &state,
+      custom_theme:    &backend.custom_theme,
       ctx:             &ctx,
       scope:           &mut scope,
       challenge_state: &mut challenge_state,
@@ -864,32 +866,38 @@ enum Terminal {
    Dropped { rule: Option<String> },
 }
 
-fn error_response(state: &StateInner, code: u16, title: &str, message: &str) -> RuleOutcome {
-   let page = template::render_error(
-      state.runtime.theme,
-      &state.runtime.custom_theme,
-      code,
-      title,
-      message,
-      None,
-   );
+fn error_response(
+   state: &StateInner,
+   custom: &CustomTheme,
+   code: u16,
+   title: &str,
+   message: &str,
+) -> RuleOutcome {
+   let page = template::render_error(state.runtime.theme, custom, code, title, message, None);
    RuleOutcome::Handled(body::html(
       StatusCode::from_u16(code).unwrap_or(StatusCode::FORBIDDEN),
       page,
    ))
 }
 
-pub(super) fn deny_response(state: &StateInner, code: u16) -> RuleOutcome {
+pub(super) fn deny_response(state: &StateInner, custom: &CustomTheme, code: u16) -> RuleOutcome {
    error_response(
       state,
+      custom,
       code,
       "Access Denied",
       "Your request has been denied.",
    )
 }
 
-pub(super) fn block_response(state: &StateInner, code: u16) -> RuleOutcome {
-   error_response(state, code, "Blocked", "Your request has been blocked.")
+pub(super) fn block_response(state: &StateInner, custom: &CustomTheme, code: u16) -> RuleOutcome {
+   error_response(
+      state,
+      custom,
+      code,
+      "Blocked",
+      "Your request has been blocked.",
+   )
 }
 
 /// Proxy to the backend a rule named, applying its rewritten path while

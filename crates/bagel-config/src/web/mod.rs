@@ -13,6 +13,7 @@ use std::{
       Path,
       PathBuf,
    },
+   result::Result as DecodeResult,
 };
 
 pub use backend::{
@@ -28,7 +29,17 @@ pub use bind::{
    BindNetwork,
    TlsConfig,
 };
-use knead::ast::Node;
+use knead::{
+   ast::Node,
+   decode::{
+      Decode,
+      Decoder,
+   },
+   errors::{
+      Error as DecodeError,
+      ErrorKind,
+   },
+};
 pub use policy::PolicyConfig;
 
 #[derive(Clone)]
@@ -113,7 +124,7 @@ pub struct LinkConfig {
 
 /// One validated `challenge-template` override, e.g. `accent "#b16286"`.
 ///
-/// Values are restricted at load so rendering them into a `style` attribute
+/// Values are restricted at load so rendering them into a `style` element
 /// cannot smuggle extra declarations: colors must be hex, lengths must be
 /// plain, and the font stack may not contain declaration-breaking characters.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,13 +139,50 @@ pub struct ThemeVar {
 /// anything else is a load error rather than something quietly ignored.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CustomTheme {
-   pub vars: Vec<ThemeVar>,
+   pub vars:  Vec<ThemeVar>,
+   pub light: Vec<ThemeVar>,
+   pub dark:  Vec<ThemeVar>,
+}
+
+impl Decode for CustomTheme {
+   fn decode(decoder: &mut Decoder<'_>) -> DecodeResult<Self, DecodeError> {
+      let decode_vars = |input: &mut Decoder<'_>| {
+         let list = StringList::decode(input)?;
+         list
+            .entries
+            .into_iter()
+            .map(|entry| {
+               Self::validate(&entry.key, &entry.value).map_err(|error| {
+                  DecodeError::new(ErrorKind::Conversion, input.span(), error.to_string())
+               })?;
+
+               Ok(ThemeVar {
+                  name:  entry.key,
+                  value: entry.value,
+               })
+            })
+            .collect::<DecodeResult<Vec<_>, DecodeError>>()
+      };
+
+      let mut custom = Self::default();
+
+      for (scheme, vars) in [("light", &mut custom.light), ("dark", &mut custom.dark)] {
+         if let Some(node) = decoder.child(scheme)? {
+            let mut variant = Decoder::new(node);
+            *vars = decode_vars(&mut variant)?;
+            variant.finish()?;
+         }
+      }
+
+      custom.vars = decode_vars(decoder)?;
+      Ok(custom)
+   }
 }
 
 impl CustomTheme {
    #[must_use]
    pub const fn is_empty(&self) -> bool {
-      self.vars.is_empty()
+      self.vars.is_empty() && self.light.is_empty() && self.dark.is_empty()
    }
 
    /// The last value wins, matching how repeated `strings` entries merge.
@@ -146,6 +194,27 @@ impl CustomTheme {
          .rev()
          .find(|var| var.name == name)
          .map(|var| var.value.as_str())
+   }
+
+   #[must_use]
+   pub fn get_for_scheme(&self, name: &str, scheme: &str) -> Option<&str> {
+      let selected = match self.get("color-scheme").unwrap_or(scheme) {
+         "light" => &self.light,
+         "dark" => &self.dark,
+         _ => {
+            match scheme {
+               "light" => &self.light,
+               _ => &self.dark,
+            }
+         },
+      };
+
+      selected
+         .iter()
+         .rev()
+         .find(|var| var.name == name)
+         .map(|var| var.value.as_str())
+         .or_else(|| self.get(name))
    }
 
    /// Check one `challenge-template` property and value.
@@ -162,7 +231,7 @@ impl CustomTheme {
                      || matches!(byte, b' ' | b',' | b'\'' | b'"' | b'-' | b'_')
                })
          },
-         "color-scheme" => matches!(value, "light" | "dark"),
+         "color-scheme" => matches!(value, "light" | "dark" | "light dark"),
          _ => {
             return Err(Error::Config(format!(
                "challenge-template: unknown property {name:?}, expected one of fg, bg, accent, \
@@ -498,18 +567,7 @@ impl Config {
             self.challenge_template_theme = Some(theme);
          },
          "challenge-template" => {
-            let list: StringList = decode_node(node)?;
-            let mut vars = Vec::with_capacity(list.entries.len());
-            for entry in list.entries {
-               if let Err(err) = CustomTheme::validate(&entry.key, &entry.value) {
-                  return Err(Error::config_at(offset, err.to_string()));
-               }
-               vars.push(ThemeVar {
-                  name:  entry.key,
-                  value: entry.value,
-               });
-            }
-            self.challenge_template = CustomTheme { vars };
+            self.challenge_template = decode_node(node)?;
          },
          "challenge-template-logo" => {
             let Argument(logo) = decode_node::<Argument<String>>(node)?;

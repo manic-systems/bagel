@@ -116,6 +116,26 @@ ladder useful behind a CDN, where a kernel drop never reaches the client.
 
 ## Challenges
 
+Put a `challenge-template` block inside a `backend` to match its site's colors.
+Its properties override the top-level template for that backend, including
+embedded cards and error pages. Optional `light` and `dark` blocks follow the
+browser's color preference. Setting `color-scheme` to `light` or `dark` pins
+the palette, while `light dark` follows the browser.
+
+```kdl
+backends {
+    backend "git.example.com" {
+        url "http://127.0.0.1:3000"
+        challenge-template {
+            color-scheme "light dark"
+            radius "6px"
+            light { bg "#fbfbfa"; card-bg "#ffffff"; fg "#1a1c1e"; accent "#a8481c" }
+            dark { bg "#0f1113"; card-bg "#15171a"; fg "#e7e8e3"; accent "#ef9f56" }
+        }
+    }
+}
+```
+
 A `challenge` rule replaces the page with an interstitial. A `check` rule
 splices the solver into the proxied page instead, so the page stays usable
 while the proof runs. `embed="hidden"`, the default, delivers only the solver,

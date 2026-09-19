@@ -11,7 +11,10 @@ use http::{
 };
 
 use crate::{
-   config::BackendConfig,
+   config::{
+      BackendConfig,
+      CustomTheme,
+   },
    error::Error,
    host::CanonicalHost,
 };
@@ -19,10 +22,11 @@ use crate::{
 /// A resolved backend: the config plus its target URI.
 #[derive(Clone)]
 pub struct Backend {
-   pub config:    BackendConfig,
-   pub target:    hyper::Uri,
-   pub host:      Option<HeaderValue>,
-   pub ip_header: Option<HeaderName>,
+   pub config:       BackendConfig,
+   pub target:       hyper::Uri,
+   pub host:         Option<HeaderValue>,
+   pub ip_header:    Option<HeaderName>,
+   pub custom_theme: CustomTheme,
 }
 
 /// Pool of backends keyed by host pattern.
@@ -36,7 +40,7 @@ pub struct BackendPool {
 }
 
 impl BackendPool {
-   pub fn build(configs: &[BackendConfig]) -> Result<Self, Error> {
+   pub fn build(configs: &[BackendConfig], default_theme: &CustomTheme) -> Result<Self, Error> {
       let mut exact = Vec::new();
       let mut wildcard = Vec::new();
       let mut fallback = None;
@@ -85,11 +89,26 @@ impl BackendPool {
                ))
             })?;
 
+         let mut custom_theme = default_theme.clone();
+
+         if let Some(theme) = &cfg.challenge_template {
+            custom_theme.vars.extend(theme.vars.iter().cloned());
+            custom_theme
+               .light
+               .retain(|var| !theme.vars.iter().any(|entry| entry.name == var.name));
+            custom_theme
+               .dark
+               .retain(|var| !theme.vars.iter().any(|entry| entry.name == var.name));
+            custom_theme.light.extend(theme.light.iter().cloned());
+            custom_theme.dark.extend(theme.dark.iter().cloned());
+         }
+
          let backend = Arc::new(Backend {
             config: cfg.clone(),
             target,
             host,
             ip_header,
+            custom_theme,
          });
 
          // Patterns are canonicalized here so they match the CanonicalHost

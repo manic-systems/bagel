@@ -14,6 +14,8 @@ use knead::{
 };
 use knead_derive::Decode;
 
+use crate::web::CustomTheme;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProxyProtocolVersion {
    V1,
@@ -89,4 +91,6 @@ pub struct BackendConfig {
    pub ip_header:          Option<String>,
    #[knead(child, unwrap(argument))]
    pub proxy_protocol_out: Option<ProxyProtocolVersion>,
+   #[knead(child)]
+   pub challenge_template: Option<CustomTheme>,
 }

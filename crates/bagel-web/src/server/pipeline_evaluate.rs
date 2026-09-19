@@ -37,6 +37,7 @@ use crate::{
          IssueResult,
       },
    },
+   config::CustomTheme,
    metrics as bmetrics,
    rule::{
       PassMarker,
@@ -148,6 +149,7 @@ pub(super) fn strip_bagel_cookies(req: &mut Request, host: &str) {
 
 pub(super) struct Eval<'a> {
    pub state:           &'a StateInner,
+   pub custom_theme:    &'a CustomTheme,
    pub ctx:             &'a ConditionContext,
    pub scope:           &'a mut Scope<'static>,
    pub challenge_state: &'a mut RequestChallengeState,
@@ -231,12 +233,12 @@ pub(super) async fn evaluate_rule_recursive(rule: &RuleState, eval: &mut Eval<'_
       Action::Deny { code } => {
          tracing::debug!(rule = rule.name, action = Action::DENY, code, "rule hit");
          bmetrics::record_action(eval.host, Action::DENY);
-         deny_response(eval.state, *code).tagged(&rule.name, Action::DENY)
+         deny_response(eval.state, eval.custom_theme, *code).tagged(&rule.name, Action::DENY)
       },
       Action::Block { code } => {
          tracing::debug!(rule = rule.name, action = Action::BLOCK, code, "rule hit");
          bmetrics::record_action(eval.host, Action::BLOCK);
-         block_response(eval.state, *code).tagged(&rule.name, Action::BLOCK)
+         block_response(eval.state, eval.custom_theme, *code).tagged(&rule.name, Action::BLOCK)
       },
       Action::Code(code) => {
          tracing::debug!(rule = rule.name, action = Action::CODE, code, "rule hit");
@@ -325,6 +327,7 @@ pub(super) async fn evaluate_rule_recursive(rule: &RuleState, eval: &mut Eval<'_
          }
          let mut child_eval = Eval {
             state:           eval.state,
+            custom_theme:    eval.custom_theme,
             ctx:             &child_ctx,
             scope:           &mut child_scope,
             challenge_state: &mut *eval.challenge_state,
@@ -513,7 +516,7 @@ async fn evaluate_challenge_action(
       if continue_after_issue && let Some(widget) = reg.runtime.embed_widget(&ctx) {
          eval.challenge_state.injections.push(template::render_embed(
             eval.state.runtime.theme,
-            &eval.state.runtime.custom_theme,
+            eval.custom_theme,
             &widget,
          ));
          bmetrics::record_challenge_issued(eval.host, challenge_name);
@@ -530,7 +533,7 @@ async fn evaluate_challenge_action(
          .issue(
             &ctx,
             eval.state.runtime.theme,
-            &eval.state.runtime.custom_theme,
+            eval.custom_theme,
             ca.http_code,
          )
          .await;
@@ -603,11 +606,11 @@ async fn dispatch_sub_action(action: &Action, eval: &Eval<'_>) -> RuleOutcome {
       },
       Action::Deny { code } => {
          bmetrics::record_action(eval.host, Action::DENY);
-         deny_response(eval.state, *code)
+         deny_response(eval.state, eval.custom_theme, *code)
       },
       Action::Block { code } => {
          bmetrics::record_action(eval.host, Action::BLOCK);
-         block_response(eval.state, *code)
+         block_response(eval.state, eval.custom_theme, *code)
       },
       Action::Drop => {
          bmetrics::record_action(eval.host, Action::DROP);

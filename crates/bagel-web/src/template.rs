@@ -10,6 +10,7 @@ use maud::{
 use crate::config::{
    CustomTheme,
    LinkConfig,
+   ThemeVar,
 };
 
 const DOCUMENT_CSS: &str = include_str!("../assets/document.css");
@@ -145,27 +146,52 @@ fn theme_var(name: &str) -> Option<&'static str> {
    }
 }
 
-/// Inline style carrying the operator's `challenge-template` overrides.
-/// Values were validated at load (hex colors, plain lengths, or a restricted
-/// font stack) and maud escapes them again here, so a hostile string cannot
-/// break out of the attribute. `None` when there is nothing to override, so
-/// pages without a custom theme render no empty `style` attribute.
-fn theme_style(custom: &CustomTheme) -> Option<String> {
+/// Inline stylesheet carrying the operator's `challenge-template` overrides.
+/// Values are validated at load as hex colors, plain lengths, or a restricted
+/// font stack, so they cannot add declarations or close the style element.
+fn theme_style(custom: &CustomTheme) -> String {
    let mut out = String::new();
-   for var in &custom.vars {
-      if let Some(property) = theme_var(&var.name) {
-         out.push_str(property);
-         out.push(':');
-         out.push_str(&var.value);
-         out.push(';');
+
+   let append = |vars: &[ThemeVar], output: &mut String| {
+      output.push_str(".bagel-widget[data-theme]{");
+
+      for var in vars {
+         if let Some(property) =
+            theme_var(&var.name).or_else(|| (var.name == "color-scheme").then_some("color-scheme"))
+         {
+            output.push_str(property);
+            output.push(':');
+            output.push_str(&var.value);
+            output.push(';');
+         }
+      }
+
+      output.push('}');
+   };
+
+   if !custom.vars.is_empty() {
+      append(&custom.vars, &mut out);
+   }
+
+   for (scheme, vars) in [("light", &custom.light), ("dark", &custom.dark)] {
+      if vars.is_empty() {
+         continue;
+      }
+
+      if let Some("light" | "dark") = custom.get("color-scheme") {
+         if custom.get("color-scheme") == Some(scheme) {
+            append(vars, &mut out);
+         }
+      } else {
+         out.push_str("@media(prefers-color-scheme:");
+         out.push_str(scheme);
+         out.push_str("){");
+         append(vars, &mut out);
+         out.push('}');
       }
    }
-   if let Some(scheme) = custom.get("color-scheme") {
-      out.push_str("color-scheme:");
-      out.push_str(scheme);
-      out.push(';');
-   }
-   (!out.is_empty()).then_some(out)
+
+   out
 }
 
 /// Draw the shared card, with one challenge's own markup between the message
@@ -210,14 +236,14 @@ pub fn render_document(theme: Theme, custom: &CustomTheme, page: &ChallengePage<
             meta charset="utf-8";
             meta name="viewport" content="width=device-width, initial-scale=1";
             meta name="color-scheme" content=(custom.get("color-scheme").unwrap_or("light dark"));
-            meta name="theme-color" media="(prefers-color-scheme: light)" content=(custom.get("bg").unwrap_or_else(|| theme.light_theme_color()));
-            meta name="theme-color" media="(prefers-color-scheme: dark)" content=(custom.get("bg").unwrap_or_else(|| theme.dark_theme_color()));
+            meta name="theme-color" media="(prefers-color-scheme: light)" content=(custom.get_for_scheme("bg", "light").unwrap_or_else(|| theme.light_theme_color()));
+            meta name="theme-color" media="(prefers-color-scheme: dark)" content=(custom.get_for_scheme("bg", "dark").unwrap_or_else(|| theme.dark_theme_color()));
             title { (page.title) }
-            style { (PreEscaped(DOCUMENT_CSS)) (PreEscaped(WIDGET_CSS)) }
+            style { (PreEscaped(DOCUMENT_CSS)) (PreEscaped(WIDGET_CSS)) (PreEscaped(theme_style(custom))) }
             (render_tags("meta", &page.meta_tags))
             (render_tags("link", &page.link_tags))
          }
-         body class="bagel-widget" data-theme=(theme.as_str()) style=[theme_style(custom)] {
+         body class="bagel-widget" data-theme=(theme.as_str()) {
             (host(&page.widget, None))
             (script_tag(&page.widget))
          }
@@ -232,8 +258,8 @@ pub fn render_embed(theme: Theme, custom: &CustomTheme, widget: &Widget) -> Stri
    let shadow = (widget.presentation == Presentation::Card).then(|| {
       html! {
          template shadowrootmode="open" {
-            style { (PreEscaped(WIDGET_CSS)) }
-            div class="bagel-widget" data-theme=(theme.as_str()) style=[theme_style(custom)] { (widget.body) }
+            style { (PreEscaped(WIDGET_CSS)) (PreEscaped(theme_style(custom))) }
+            div class="bagel-widget" data-theme=(theme.as_str()) { (widget.body) }
          }
       }
    });
@@ -288,12 +314,12 @@ pub fn render_error(
             meta charset="utf-8";
             meta name="viewport" content="width=device-width, initial-scale=1";
             meta name="color-scheme" content=(custom.get("color-scheme").unwrap_or("light dark"));
-            meta name="theme-color" media="(prefers-color-scheme: light)" content=(custom.get("bg").unwrap_or_else(|| theme.light_theme_color()));
-            meta name="theme-color" media="(prefers-color-scheme: dark)" content=(custom.get("bg").unwrap_or_else(|| theme.dark_theme_color()));
+            meta name="theme-color" media="(prefers-color-scheme: light)" content=(custom.get_for_scheme("bg", "light").unwrap_or_else(|| theme.light_theme_color()));
+            meta name="theme-color" media="(prefers-color-scheme: dark)" content=(custom.get_for_scheme("bg", "dark").unwrap_or_else(|| theme.dark_theme_color()));
             title { (title) }
-            style { (PreEscaped(DOCUMENT_CSS)) (PreEscaped(WIDGET_CSS)) }
+            style { (PreEscaped(DOCUMENT_CSS)) (PreEscaped(WIDGET_CSS)) (PreEscaped(theme_style(custom))) }
          }
-         body class="bagel-widget" data-theme=(theme.as_str()) style=[theme_style(custom)] {
+         body class="bagel-widget" data-theme=(theme.as_str()) {
             main class="card" {
                div class="code" { (status_code) }
                h1 { (title) }
