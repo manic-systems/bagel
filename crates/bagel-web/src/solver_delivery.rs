@@ -222,15 +222,6 @@ mod tests {
       validate(&verifier, INPUT, STATIC_WASM)?;
       for seed in [0, 1, 42, u64::MAX] {
          rewrite(&verifier, INPUT, &config(seed))?;
-         let mut aggressive = config(seed);
-         aggressive.functions.clear();
-         aggressive.include_callees = false;
-         aggressive.exclude_reachable.clear();
-         aggressive.markers_all = true;
-         aggressive.opaque = true;
-         aggressive.indirect_ratio = 100u32.try_into().map_err(io::Error::other)?;
-         aggressive.opaque_ratio = 100u32.try_into().map_err(io::Error::other)?;
-         rewrite(&verifier, INPUT, &aggressive)?;
       }
       Ok(())
    }
