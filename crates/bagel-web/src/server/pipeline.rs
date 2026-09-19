@@ -204,12 +204,13 @@ pub async fn handle_request(shared: &SharedState, addr: SocketAddr, mut req: Req
       };
    }
 
-   let (mut challenge_state, mut ctx, mut scope) =
+   let (mut challenge_state, mut ctx) =
       request_context(&state, &req, &host, client_ip, source_network);
    #[cfg(feature = "fcrdns")]
    if let (Some(verifier), Some(ip)) = (&state.runtime.crawler_verifier, client_ip) {
       ctx.crawler_verified = verifier.verify(ip).await;
    }
+   let mut scope = ctx.scope();
 
    // Scoring runs before rules so observation traces include requests a rule
    // later handles.
@@ -431,11 +432,7 @@ fn request_context(
    host: &str,
    client_ip: Option<IpAddr>,
    source_network: Option<SourceNetwork>,
-) -> (
-   RequestChallengeState,
-   ConditionContext,
-   rhai::Scope<'static>,
-) {
+) -> (RequestChallengeState, ConditionContext) {
    let challenge_state = RequestChallengeState::from_headers(
       req.headers(),
       host,
@@ -507,8 +504,7 @@ fn request_context(
          .as_ref()
          .is_some_and(|leases| leases.contains(ip));
    }
-   let scope = ctx.scope();
-   (challenge_state, ctx, scope)
+   (challenge_state, ctx)
 }
 
 struct FinalizeContext<'a> {
