@@ -1681,15 +1681,15 @@ dependencies = [
 
 [[package]]
 name = "knead"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "542f95266cfd01e2ee0c374997b70c6cc2d6edbe6730e7640ccb61fa79ed808d"
+checksum = "c96c105096771146d14782fe71e880f5f66268ddbfb11b4dd248d7ee566b8090"
 
 [[package]]
 name = "knead-derive"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2175ac211019245e61abe6fb41adb5f10a4936b75b3a306c8490bf64a7a024f9"
+checksum = "9861fa1915cb2acaf5fb74005f90d1d4046dd887047928db6ba7f892585e1c54"
 dependencies = [
  "proc-macro2",
  "quote",
