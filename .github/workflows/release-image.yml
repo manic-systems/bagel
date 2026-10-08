@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: EUPL-1.2
+
+name: Release image
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Git tag from the prepare stage, e.g. v1.2.3
+        required: true
+        type: string
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-26.04, arch: amd64 }
+          - { os: ubuntu-26.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.version }}
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          image=ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION#v}
+          echo "$TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          nix build .#container
+          ./result | skopeo copy docker-archive:/dev/stdin "docker://$image-$ARCH"
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      packages: write
+    steps:
+      - name: Merge into one multi-arch tag
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image=ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION#v}
+          echo "$TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          podman manifest create bagel
+          podman manifest add bagel "docker://$image-amd64"
+          podman manifest add bagel "docker://$image-arm64"
+          podman manifest push --all bagel "docker://$image"

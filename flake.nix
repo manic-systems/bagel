@@ -45,6 +45,9 @@
           dashboard = pkgs.callPackage ./nix/dashboard.nix { };
           default = self.packages.${system}.bagel;
         }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          container = pkgs.callPackage ./nix/container.nix { bagel = self.packages.${system}.bagel; };
+        }
       );
 
       devShells = forAllSystems (
@@ -68,6 +71,9 @@
         in
         {
           inherit bagel;
+        }
+        // lib.optionalAttrs (self.packages.${system} ? container) {
+          inherit (self.packages.${system}) container;
         }
         // import ./nix/checks.nix {
           inherit pkgs dashboard;

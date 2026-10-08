@@ -194,6 +194,17 @@ be imported as is.
 > For contributors, `nix/dashboard.nix` renders it and `nix flake check` fails
 > when the two drift.
 
+## Container
+
+```sh
+$ nix build .#container
+$ ./result | podman load
+$ podman run -v ./bagel.kdl:/etc/bagel/bagel.kdl:ro -p 8080:8080 bagel
+```
+
+The image keeps state in `/var/lib/bagel` and does not include `/etc/bagel`, so
+mount your config there.
+
 ## Build features
 
 ACME needs the `bagel-daemon` crate's `acme` feature and a TCP listener, and
