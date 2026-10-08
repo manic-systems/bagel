@@ -794,9 +794,9 @@ These bounded metrics are exported.
 
 ```
 bagel_requests_total
-bagel_rule_results
-bagel_action_results
-bagel_challenge_results
+bagel_rule_results_total
+bagel_action_results_total
+bagel_challenge_results_total
 bagel_scoring_signal_total
 bagel_scoring_signal_error_total
 bagel_scoring_decision_total
@@ -812,7 +812,7 @@ bagel_offenses_total
 
 `bagel_requests_total` counts every policy request once under its
 `effective_action`, so it is the request total and the outcome split in one
-series set. `bagel_action_results` counts rule actions as they run, including
+series set. `bagel_action_results_total` counts rule actions as they run, including
 `lure`, `beacon` and `context`, and never the default proxy.
 `bagel_pow_verified_total` carries the level a proof was sealed at, so the
 GPU and wasm tiers read as two series, and `bagel_beacon_total` counts

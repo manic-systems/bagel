@@ -12,10 +12,10 @@ pub const SCORE_BUCKETS: [f64; 11] = [
 ];
 
 pub fn init_metrics() {
-   describe_counter!("bagel_rule_results", "Rule evaluation results");
-   describe_counter!("bagel_action_results", "Action execution results");
+   describe_counter!("bagel_rule_results_total", "Rule evaluation results");
+   describe_counter!("bagel_action_results_total", "Action execution results");
    describe_counter!(
-      "bagel_challenge_results",
+      "bagel_challenge_results_total",
       "Challenge issuance/verification results"
    );
    describe_counter!("bagel_scoring_signal_total", "Matched scoring signals");
@@ -69,30 +69,30 @@ pub fn record_beacon(site: &str, kind: &'static str) {
 }
 
 pub fn record_rule_hit(site: &str, rule_name: &str) {
-   counter!("bagel_rule_results", "site" => site.to_owned(), "rule" => rule_name.to_owned(), "result" => "hit").increment(1);
+   counter!("bagel_rule_results_total", "site" => site.to_owned(), "rule" => rule_name.to_owned(), "result" => "hit").increment(1);
 }
 
 pub fn record_rule_miss(site: &str, rule_name: &str) {
-   counter!("bagel_rule_results", "site" => site.to_owned(), "rule" => rule_name.to_owned(), "result" => "miss").increment(1);
+   counter!("bagel_rule_results_total", "site" => site.to_owned(), "rule" => rule_name.to_owned(), "result" => "miss").increment(1);
 }
 
 pub fn record_action(site: &str, action: &str) {
-   counter!("bagel_action_results", "site" => site.to_owned(), "action" => action.to_owned())
+   counter!("bagel_action_results_total", "site" => site.to_owned(), "action" => action.to_owned())
       .increment(1);
 }
 
 pub fn record_challenge_issued(site: &str, challenge: &str) {
-   counter!("bagel_challenge_results", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "issued")
+   counter!("bagel_challenge_results_total", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "issued")
       .increment(1);
 }
 
 pub fn record_challenge_passed(site: &str, challenge: &str) {
-   counter!("bagel_challenge_results", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "passed")
+   counter!("bagel_challenge_results_total", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "passed")
       .increment(1);
 }
 
 pub fn record_challenge_failed(site: &str, challenge: &str) {
-   counter!("bagel_challenge_results", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "failed")
+   counter!("bagel_challenge_results_total", "site" => site.to_owned(), "challenge" => challenge.to_owned(), "action" => "failed")
       .increment(1);
 }
 
