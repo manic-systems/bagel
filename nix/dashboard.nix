@@ -510,7 +510,7 @@ let
     (ranked {
       title = "Rules";
       description = "Rule hits over the dashboard range. A request can match several nested rules, so these do not sum to a request count.";
-      expr = ''topk(15, sum by (rule) (increase(bagel_rule_results{${web}, result="hit"}[$__range])))'';
+      expr = ''topk(15, sum by (rule) (increase(bagel_rule_results_total{${web}, result="hit"}[$__range])))'';
       x = 16;
       y = 4;
     })
@@ -583,7 +583,7 @@ let
       y = 34;
       queries = [
         {
-          expr = rate "bagel_challenge_results" "challenge, action" web;
+          expr = rate "bagel_challenge_results_total" "challenge, action" web;
           legend = "{{challenge}} {{action}}";
         }
       ];
@@ -793,13 +793,13 @@ let
       (variable {
         name = "instance";
         label = "Host";
-        query = "label_values(bagel_rule_results, instance)";
+        query = "label_values(bagel_rule_results_total, instance)";
         refresh = 1;
       })
       (variable {
         name = "site";
         label = "Site";
-        query = ''label_values(bagel_rule_results{instance=~"$instance"}, site)'';
+        query = ''label_values(bagel_rule_results_total{instance=~"$instance"}, site)'';
         refresh = 2;
       })
     ];

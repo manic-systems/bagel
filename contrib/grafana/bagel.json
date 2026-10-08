@@ -834,7 +834,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "topk(15, sum by (rule) (increase(bagel_rule_results{instance=~\"$instance\", site=~\"$site\", result=\"hit\"}[$__range])))",
+          "expr": "topk(15, sum by (rule) (increase(bagel_rule_results_total{instance=~\"$instance\", site=~\"$site\", result=\"hit\"}[$__range])))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -1250,7 +1250,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (challenge, action) (rate(bagel_challenge_results{instance=~\"$instance\", site=~\"$site\"}[$__rate_interval]))",
+          "expr": "sum by (challenge, action) (rate(bagel_challenge_results_total{instance=~\"$instance\", site=~\"$site\"}[$__rate_interval]))",
           "legendFormat": "{{challenge}} {{action}}",
           "refId": "A"
         }
@@ -1920,7 +1920,7 @@
         "label": "Host",
         "multi": true,
         "name": "instance",
-        "query": "label_values(bagel_rule_results, instance)",
+        "query": "label_values(bagel_rule_results_total, instance)",
         "refresh": 1,
         "sort": 1,
         "type": "query"
@@ -1939,7 +1939,7 @@
         "label": "Site",
         "multi": true,
         "name": "site",
-        "query": "label_values(bagel_rule_results{instance=~\"$instance\"}, site)",
+        "query": "label_values(bagel_rule_results_total{instance=~\"$instance\"}, site)",
         "refresh": 2,
         "sort": 1,
         "type": "query"
