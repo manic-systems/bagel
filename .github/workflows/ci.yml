@@ -15,6 +15,7 @@ jobs:
     with:
       os: ${{ matrix.os }}
       rust-toolchain: nightly
+      rust-targets: wasm32v1-none
       test: true
       test-command: "env RUSTFLAGS= cargo test --locked --workspace --all-features"
       clippy: true
