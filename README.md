@@ -32,8 +32,8 @@ one that only watches.
 ## Quickstart
 
 Build it with `nix build` in the checkout, or `cargo build --release` with
-`lld` and a `wasm32v1-none` target installed for the solver. Then print the
-starter config and run it.
+`lld`, `wasm-opt` and a `wasm32v1-none` target installed for the solver. Then
+print the starter config and run it.
 
 ```sh
 bagel config example > bagel.kdl
@@ -153,8 +153,8 @@ worker against a fresh module. Each challenge is issued its own vela rewrite of
 the module from a pool prepared at startup, falling back to the static build,
 and every build proves the static rewrite and three more seeds against the
 native solver before it ships. The profile lives in `bagel_solver::host`.
-Building needs `lld` for `wasm32v1-none`, shrinks with `wasm-opt` when
-binaryen is available, and `BAGEL_SOLVER_WASM` substitutes a prebuilt module.
+Building needs `lld` for `wasm32v1-none` and `wasm-opt` from binaryen, and
+`BAGEL_SOLVER_WASM` substitutes a prebuilt module.
 
 Two proofs are available. `pow-sha256` hashes once per attempt and
 `difficulty` defaults to 16. `pow-scratch` walks a scratchpad of `memory` KiB,
