@@ -50,10 +50,8 @@ struct Scalars {
 
 #[test]
 #[expect(
-   clippy::float_cmp,
    clippy::non_ascii_literal,
-   reason = "the decoder must reproduce each literal bit for bit, so a tolerance would hide the \
-             rounding this guards against"
+   reason = "the fixture exercises a non-ASCII bare string"
 )]
 fn kdl2_scalars_decode_without_text_conversion() {
    let document = knead::parse(r#"
@@ -66,12 +64,11 @@ values café enabled=#true disabled=#false absent=#null signed=-9223372036854775
    assert_eq!(decoded.absent, None);
    assert_eq!(decoded.signed, i64::MIN);
    assert_eq!(decoded.unsigned, u64::MAX);
-   assert_eq!(decoded.ratio, 1.25);
-   assert_eq!(decoded.positive, f64::INFINITY);
-   assert_eq!(decoded.negative, f64::NEG_INFINITY);
+   assert_eq!(decoded.ratio.to_bits(), 1.25_f64.to_bits());
+   assert_eq!(decoded.positive.to_bits(), f64::INFINITY.to_bits());
+   assert_eq!(decoded.negative.to_bits(), f64::NEG_INFINITY.to_bits());
    assert!(decoded.nan.is_nan());
-   assert_eq!(decoded.zero, 0.0);
-   assert!(decoded.zero.is_sign_negative());
+   assert_eq!(decoded.zero.to_bits(), (-0.0_f64).to_bits());
 }
 
 #[test]
