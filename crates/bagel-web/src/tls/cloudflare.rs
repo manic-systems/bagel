@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+   collections::HashMap,
+   str::FromStr,
+};
 
 use data_encoding::{
    BASE64,
@@ -24,10 +27,10 @@ pub const ORIGIN_TOKEN_HEADER: &str = "x-bagel-origin-token";
 #[derive(Clone, Debug)]
 struct ClientHash([u8; 20]);
 
-impl TryFrom<&str> for ClientHash {
-   type Error = CaptureError;
+impl FromStr for ClientHash {
+   type Err = CaptureError;
 
-   fn try_from(encoded: &str) -> Result<Self, Self::Error> {
+   fn from_str(encoded: &str) -> Result<Self, Self::Err> {
       let decoded = BASE64
          .decode(encoded.as_bytes())
          .map_err(|_| CaptureError::Invalid)?;
@@ -174,10 +177,10 @@ impl CloudflareFingerprint {
          cipher: cipher.to_owned(),
          protocol,
          ciphers: (!ciphers.is_empty())
-            .then(|| ClientHash::try_from(ciphers))
+            .then(|| ciphers.parse::<ClientHash>())
             .transpose()?,
          extensions: (!extensions.is_empty())
-            .then(|| ClientHash::try_from(extensions))
+            .then(|| extensions.parse::<ClientHash>())
             .transpose()?,
          hello_length,
       })
