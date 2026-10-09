@@ -16,6 +16,8 @@ jobs:
       os: ${{ matrix.os }}
       rust-toolchain: nightly
       rust-targets: wasm32v1-none
+      setup-command: |
+        echo "$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#binaryen)/bin" >> "$GITHUB_PATH"
       test: true
       test-command: "env RUSTFLAGS= cargo test --locked --workspace --all-features"
       clippy: true
