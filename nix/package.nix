@@ -90,6 +90,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
       NotAShelf
     ];
     mainProgram = "bagel-daemon";
-    platforms = lib.platforms.linux;
+    platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 })
