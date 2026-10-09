@@ -365,8 +365,7 @@ impl ConditionContext {
       let remote_address = req
          .extensions()
          .get::<SocketAddr>()
-         .map(|sa| sa.ip().to_string())
-         .unwrap_or_default();
+         .map_or_else(String::new, |sa| sa.ip().to_string());
 
       let remote_ip = req.extensions().get::<SocketAddr>().map(SocketAddr::ip);
 

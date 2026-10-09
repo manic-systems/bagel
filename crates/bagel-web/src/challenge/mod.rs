@@ -469,7 +469,7 @@ impl RequestChallengeState {
             (name.trim() == cname).then(|| value.trim().to_owned())
          });
 
-      let network_prefix = client_ip.map(ip_network_prefix).unwrap_or_default();
+      let network_prefix = client_ip.map_or_else(Default::default, ip_network_prefix);
       let cookie_key = derive_cookie_key(host, &network_prefix, server_key_bytes);
 
       if let Some(ref value) = cookie_value {
@@ -565,7 +565,7 @@ impl RequestChallengeState {
          return Ok(None);
       };
 
-      let network_prefix = client_ip.map(ip_network_prefix).unwrap_or_default();
+      let network_prefix = client_ip.map_or_else(Default::default, ip_network_prefix);
       let cookie_key = derive_cookie_key(host, &network_prefix, server_key_bytes);
       let cname = cookie_name(host);
 

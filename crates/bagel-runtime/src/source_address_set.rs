@@ -60,8 +60,9 @@ pub async fn run(
       let modified_nanos = metadata
          .modified()?
          .duration_since(UNIX_EPOCH)
-         .map(|duration| u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX))
-         .unwrap_or_default();
+         .map_or(0, |duration| {
+            u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+         });
       let identity = (
          metadata.dev(),
          metadata.ino(),
