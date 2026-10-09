@@ -3138,9 +3138,9 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vela-wasm"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8d27b943dd577476e319f398e6e3fd3dc4acea6d2c6c39cdc9d2af7996ce8b6"
+checksum = "f71d0307f47b3c7cb0a6e3356f17412add885b7b91be2b2d6606a7577f3e9422"
 dependencies = [
  "brotli",
  "misstep",
