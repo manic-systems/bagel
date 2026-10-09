@@ -121,8 +121,7 @@ impl Deceiver {
       for (index, link) in links.iter().enumerate() {
          let prose = chunks
             .next()
-            .map(|chunk| chunk.join(" "))
-            .unwrap_or_default();
+            .map_or_else(String::new, |chunk| chunk.join(" "));
          let anchor = words
             .get((index * 7 + seed.len()) % words.len().max(1))
             .map_or("more", String::as_str);
@@ -190,8 +189,7 @@ fn mtime_age() -> u64 {
 fn unix_now() -> u64 {
    SystemTime::now()
       .duration_since(UNIX_EPOCH)
-      .map(|d| d.as_secs())
-      .unwrap_or_default()
+      .map_or(0, |d| d.as_secs())
 }
 
 /// A per-interaction tracking token derived from the user agent and time.

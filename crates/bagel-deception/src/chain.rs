@@ -239,6 +239,6 @@ mod tests {
    #[test]
    fn unknown_kind_falls_back() {
       let markov = Markov::new(Path::new("/nonexistent"));
-      assert!(!markov.generate("does-not-exist", 20).is_empty());
+      assert_ne!(markov.generate("does-not-exist", 20), "");
    }
 }
