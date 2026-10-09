@@ -158,17 +158,9 @@ fn main() {
       .arg(&built)
       .arg("-o")
       .arg(&dest)
-      .status();
-   match shrunk {
-      Ok(status) => assert!(status.success(), "wasm-opt failed on the solver module"),
-      Err(err) => {
-         assert!(
-            err.kind() == std::io::ErrorKind::NotFound,
-            "run wasm-opt: {err}"
-         );
-         fs::copy(&built, &dest).expect("copy built solver module");
-      },
-   }
+      .status()
+      .expect("run wasm-opt, the solver module only fits its size limit once shrunk");
+   assert!(shrunk.success(), "wasm-opt failed on the solver module");
 
    obfuscate(&verifier, &dest);
 }
