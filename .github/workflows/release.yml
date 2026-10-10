@@ -2,24 +2,29 @@ name: Tag and Release
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Build and Test with Cargo]
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [CI]
     types: [completed]
     branches: [main]
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 jobs:
   prepare:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    uses: manic-systems/workflows/.github/workflows/rust-release.yml@v1
+    uses: manic-systems/workflows/.github/workflows/rust-release.yml@cbe0792d849aef0dbad4d2bde960b110761ed905 # v2.1.1
     with:
       stage: prepare
 
   build:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     needs: prepare
     if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     strategy:
@@ -27,9 +32,9 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, suffix: linux-amd64 }
-          - { os: ubuntu-24.04-arm, suffix: linux-arm64 }
+          - { os: ubuntu-26.04-arm, suffix: linux-arm64 }
           - { os: macos-latest, suffix: macos-arm64 }
-    uses: manic-systems/workflows/.github/workflows/rust-build.yml@v1
+    uses: manic-systems/workflows/.github/workflows/rust-build.yml@cbe0792d849aef0dbad4d2bde960b110761ed905 # v2.1.1
     with:
       upload: true
       version: ${{ needs.prepare.outputs.version }}
@@ -38,9 +43,13 @@ jobs:
       binary-name: bagel-daemon
 
   finalize:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     needs: [prepare, build]
     if: ${{ needs.prepare.outputs.skip != 'true' && needs.build.result == 'success' }}
-    uses: manic-systems/workflows/.github/workflows/rust-release.yml@v1
+    uses: manic-systems/workflows/.github/workflows/rust-release.yml@cbe0792d849aef0dbad4d2bde960b110761ed905 # v2.1.1
     with:
       stage: finalize
 
@@ -50,6 +59,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/release-image.yml
+    uses: ./.github/workflows/release-image.yml # zizmor: ignore[self-repository]
     with:
       version: ${{ needs.prepare.outputs.version }}

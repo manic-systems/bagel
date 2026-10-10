@@ -1,26 +1,35 @@
-name: Build and Test with Cargo
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   checks:
+    name: Checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
-    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@v1
+        os: [ubuntu-latest, ubuntu-26.04-arm, macos-latest]
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@cbe0792d849aef0dbad4d2bde960b110761ed905 # v2.1.1
     with:
       os: ${{ matrix.os }}
-      rust-toolchain: nightly
-      rust-targets: wasm32v1-none
-      setup-command: |
-        echo "$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#binaryen)/bin" >> "$GITHUB_PATH"
-      test: true
-      test-command: "env RUSTFLAGS= cargo test --locked --workspace --all-features"
+      fmt: ${{ matrix.os == 'ubuntu-latest' }}
       clippy: true
-      clippy-command: "env RUSTFLAGS= cargo clippy --locked --workspace --all-targets --all-features -- -D warnings"
-      fmt: true
-      fmt-command: cargo fmt --all -- --check
+      clippy-command: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      test: true
+      test-command: cargo test --locked --workspace --all-features
+
+  actions:
+    name: Actions Lint
+    uses: manic-systems/workflows/.github/workflows/actions-lint.yml@cbe0792d849aef0dbad4d2bde960b110761ed905 # v2.1.1
