@@ -72,7 +72,7 @@ tokio-util                  = { features = [ "rt" ], version = "0.7.19" }
 tower-service               = "0.3.3"
 tracing                     = "0.1.44"
 tracing-subscriber          = { default-features = false, features = [ "env-filter", "fmt", "smallvec", "std", "tracing-log" ], version = "0.3.23" }
-vela                        = { package = "vela-wasm", version = "0.2.5" }
+vela                        = { package = "vela-wasm", version = "0.2.6" }
 
 [profile.release]
 codegen-units = 1
