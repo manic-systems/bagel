@@ -52,7 +52,7 @@ metrics                     = "0.24.6"
 metrics-exporter-prometheus = { default-features = false, version = "0.18.3" }
 parking_lot                 = "0.12.5"
 pin-project-lite            = "0.2.17"
-pound                       = "0.1.7"
+pound                       = "0.3.0"
 ppp                         = "2.3.0"
 rand                        = "0.10.2"
 regex                       = { default-features = false, features = [ "perf", "std", "unicode-case", "unicode-perl" ], version = "1.13.1" }
