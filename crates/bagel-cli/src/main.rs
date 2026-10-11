@@ -13,11 +13,11 @@ use pound::Parse;
 #[pound(name = "bagel")]
 struct Cli {
    /// Path to the daemon admin socket.
-   #[pound(long, short = 's', env = "BAGEL_ADMIN_SOCKET", global = true)]
+   #[pound(long, short = 's', env = "BAGEL_ADMIN_SOCKET", global)]
    socket: Option<PathBuf>,
 
    /// Emit machine-readable JSON instead of formatted text.
-   #[pound(long, global = true)]
+   #[pound(long, global)]
    json: bool,
 
    #[pound(subcommand)]
