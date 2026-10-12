@@ -80,6 +80,9 @@ const fn is_zero(level: &u32) -> bool {
 pub struct Token {
    pub session: [u8; 32],
    pub state:   HashMap<String, TokenChallenge>,
+   /// No verified pass yet, so the cookie is not bound to the network.
+   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+   pub pending: bool,
    /// Token expiry (Unix epoch seconds).
    pub exp:     i64,
    /// Token not-before (Unix epoch seconds).
@@ -211,6 +214,12 @@ pub fn derive_cookie_key(host: &str, network_prefix: &str, server_key_bytes: &[u
       .expect("sha256 output is 32 bytes")
 }
 
+/// The key for a token that holds no pass yet.
+#[must_use]
+pub fn derive_pending_key(host: &str, server_key_bytes: &[u8]) -> [u8; 32] {
+   derive_cookie_key(host, "pending", server_key_bytes)
+}
+
 /// Compute the cookie name from host hash.
 /// `.bagel-{hex(sha256(host)[:6])}-state`.
 #[must_use]
@@ -324,6 +333,7 @@ mod tests {
       let token = Token {
          session: [7; 32],
          state:   HashMap::new(),
+         pending: false,
          exp:     now + 3600,
          nbf:     now - 60,
          iat:     now,

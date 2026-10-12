@@ -58,7 +58,6 @@ impl ChallengeBinding {
       for part in [
          session.as_slice(),
          host.as_bytes(),
-         client_ip.to_string().as_bytes(),
          challenge.as_bytes(),
          user_agent,
          &revision.to_le_bytes(),

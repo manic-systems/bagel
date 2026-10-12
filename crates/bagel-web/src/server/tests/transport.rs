@@ -397,3 +397,61 @@ async fn ip_hosts_get_host_only_cookies() {
       .unwrap();
    assert!(!ip_cookie.contains("Domain="), "{ip_cookie}");
 }
+
+#[test]
+fn pending_session_follows_an_address_change_but_a_pass_does_not() {
+   use std::net::IpAddr;
+
+   use http::header::{
+      COOKIE,
+      HeaderMap,
+   };
+
+   use crate::challenge::RequestChallengeState;
+
+   let rng = SystemRandom::new();
+   let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+   let signing_key = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+   let public_key = ring::signature::KeyPair::public_key(&signing_key)
+      .as_ref()
+      .to_vec();
+   let v6: IpAddr = "2001:db8:30:55::e022".parse().unwrap();
+   let v4: IpAddr = "192.0.2.233".parse().unwrap();
+
+   let reopened = |state: &RequestChallengeState, from: IpAddr| {
+      let cookie = state
+         .seal_cookie(
+            "example.test",
+            false,
+            &signing_key,
+            pkcs8.as_ref(),
+            Some(v6),
+         )
+         .unwrap()
+         .unwrap();
+      let mut headers = HeaderMap::new();
+      headers.insert(COOKIE, cookie.split(';').next().unwrap().parse().unwrap());
+      RequestChallengeState::from_headers(
+         &headers,
+         "example.test",
+         &public_key,
+         pkcs8.as_ref(),
+         Some(from),
+      )
+      .token
+   };
+
+   let mut state = RequestChallengeState {
+      token:      None,
+      modified:   false,
+      injections: Vec::new(),
+   };
+   state
+      .issue_challenge("cookie", &[1_u8; 32], std::time::Duration::from_mins(1))
+      .unwrap();
+   assert!(reopened(&state, v4).is_some());
+
+   state.token.as_mut().unwrap().pending = false;
+   assert!(reopened(&state, v6).is_some());
+   assert!(reopened(&state, v4).is_none());
+}

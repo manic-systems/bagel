@@ -448,6 +448,7 @@ fn seal_pass(
       .token
       .as_mut()
       .ok_or_else(|| body::text(StatusCode::FORBIDDEN, "missing challenge session"))?;
+   token.pending = false;
    token
       .state
       .insert(challenge_name.to_owned(), TokenChallenge {

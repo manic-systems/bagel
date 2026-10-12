@@ -40,6 +40,7 @@ use self::{
       TokenChallenge,
       cookie_name,
       derive_cookie_key,
+      derive_pending_key,
       format_http_date,
       open_token,
       seal_token,
@@ -441,6 +442,7 @@ impl RequestChallengeState {
       self.token = Some(Token {
          session,
          state: HashMap::new(),
+         pending: true,
          exp: expiry,
          nbf: now,
          iat: now,
@@ -473,7 +475,17 @@ impl RequestChallengeState {
       let cookie_key = derive_cookie_key(host, &network_prefix, server_key_bytes);
 
       if let Some(ref value) = cookie_value {
-         match open_token(value, public_key_bytes, &cookie_key) {
+         let opened = open_token(value, public_key_bytes, &cookie_key).or_else(|err| {
+            open_token(
+               value,
+               public_key_bytes,
+               &derive_pending_key(host, server_key_bytes),
+            )
+            .ok()
+            .filter(|token| token.pending)
+            .ok_or(err)
+         });
+         match opened {
             Ok(token) => {
                return Self {
                   token:      Some(token),
@@ -565,8 +577,12 @@ impl RequestChallengeState {
          return Ok(None);
       };
 
-      let network_prefix = client_ip.map_or_else(Default::default, ip_network_prefix);
-      let cookie_key = derive_cookie_key(host, &network_prefix, server_key_bytes);
+      let cookie_key = if token.pending {
+         derive_pending_key(host, server_key_bytes)
+      } else {
+         let network_prefix = client_ip.map_or_else(Default::default, ip_network_prefix);
+         derive_cookie_key(host, &network_prefix, server_key_bytes)
+      };
       let cname = cookie_name(host);
 
       let sealed = seal_token(token, signing_key, &cookie_key)?;
