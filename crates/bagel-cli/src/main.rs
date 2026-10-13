@@ -62,6 +62,8 @@ enum ConfigCommand {
 )]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
+   caress::handle(Cli::SPEC);
+
    for variable in Cli::SPEC.args.iter().filter_map(|argument| argument.env) {
       if let Err(std::env::VarError::NotUnicode(_)) = std::env::var(variable) {
          eprintln!("{variable} must be valid UTF-8");
