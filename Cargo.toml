@@ -25,6 +25,7 @@ bagel-web       = { path = "crates/bagel-web", version = "1.0.0" }
 anyhow                      = "1.0.104"
 arc-swap                    = "1.9.2"
 bytes                       = "1.12.1"
+caress                      = "0.1.0"
 constant_time_eq            = "0.6.0"
 dashmap                     = "6.2.1"
 data-encoding               = "2.11.1"

@@ -227,6 +227,7 @@ dependencies = [
  "anyhow",
  "bagel-admin",
  "bagel-core",
+ "caress",
  "pound 0.4.2",
  "serde_json",
  "tokio",
@@ -456,6 +457,15 @@ name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "caress"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28f77ddc5f5c464a8d23e20f9887a878d1e0f0ec996ec5f42e1dec4c1452e8ff"
+dependencies = [
+ "pound 0.4.2",
+]
 
 [[package]]
 name = "cc"
