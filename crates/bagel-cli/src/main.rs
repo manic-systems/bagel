@@ -55,31 +55,12 @@ enum ConfigCommand {
    Example,
 }
 
-#[expect(
-   clippy::print_stderr,
-   clippy::print_stdout,
-   reason = "the CLI writes its results to stdout and its startup errors to stderr"
-)]
+#[expect(clippy::print_stdout, reason = "the CLI writes its results to stdout")]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
    caress::handle(Cli::SPEC);
 
-   for variable in Cli::SPEC.args.iter().filter_map(|argument| argument.env) {
-      if let Err(std::env::VarError::NotUnicode(_)) = std::env::var(variable) {
-         eprintln!("{variable} must be valid UTF-8");
-         std::process::exit(2);
-      }
-   }
-   let arguments: Vec<String> = std::env::args_os()
-      .skip(1)
-      .map(|argument| {
-         argument.into_string().unwrap_or_else(|_| {
-            eprintln!("command-line arguments must be valid UTF-8");
-            std::process::exit(2);
-         })
-      })
-      .collect();
-   let cli = Cli::parse_from(arguments.iter().map(String::as_str));
+   let cli = Cli::parse();
 
    if let Command::Config { action } = &cli.command {
       run_config(action);
