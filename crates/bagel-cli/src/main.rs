@@ -13,8 +13,14 @@ use pound::Parse;
 #[pound(name = "bagel")]
 struct Cli {
    /// Path to the daemon admin socket.
-   #[pound(long, short = 's', env = "BAGEL_ADMIN_SOCKET", global)]
-   socket: Option<PathBuf>,
+   #[pound(
+      long,
+      short = 's',
+      env = "BAGEL_ADMIN_SOCKET",
+      default = { bagel_core::DEFAULT_ADMIN_SOCKET },
+      global
+   )]
+   socket: PathBuf,
 
    /// Emit machine-readable JSON instead of formatted text.
    #[pound(long, global)]
@@ -89,12 +95,9 @@ async fn main() -> anyhow::Result<()> {
       Command::Config { .. } => return Ok(()),
    };
 
-   let socket = cli
-      .socket
-      .unwrap_or_else(|| PathBuf::from(bagel_core::DEFAULT_ADMIN_SOCKET));
-   let response = bagel_admin::query(&socket, &request)
+   let response = bagel_admin::query(&cli.socket, &request)
       .await
-      .with_context(|| format!("cannot reach the bagel daemon at {}", socket.display()))?;
+      .with_context(|| format!("cannot reach the bagel daemon at {}", cli.socket.display()))?;
 
    let is_error = matches!(response, Response::Error(_));
    if cli.json {
