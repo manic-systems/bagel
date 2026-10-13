@@ -1,13 +1,26 @@
 //! `bagel` admin CLI.
 
-use std::path::PathBuf;
+use std::{
+   path::PathBuf,
+   time::{
+      Duration,
+      SystemTime,
+      UNIX_EPOCH,
+   },
+};
 
 use anyhow::Context;
 use bagel_admin::{
    Request,
    Response,
 };
-use pound::Parse;
+use pound::{
+   Parse,
+   complete::{
+      Candidate,
+      Partial,
+   },
+};
 
 #[derive(Parse)]
 #[pound(name = "bagel", help_if_empty)]
@@ -42,7 +55,10 @@ enum Command {
       duration_secs: Option<u64>,
    },
    /// Remove manual and automatic bans for an address or CIDR.
-   Unblock { network: String },
+   Unblock {
+      #[pound(complete = complete_ban)]
+      network: String,
+   },
    /// List active durable enforcement leases.
    Bans,
    /// List configured defense policies.
@@ -63,8 +79,7 @@ enum ConfigCommand {
 }
 
 #[expect(clippy::print_stdout, reason = "the CLI writes its results to stdout")]
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
    caress::handle(Cli::SPEC);
 
    let cli = Cli::parse();
@@ -96,8 +111,11 @@ async fn main() -> anyhow::Result<()> {
       Command::Config { .. } => return Ok(()),
    };
 
-   let response = bagel_admin::query(&cli.socket, &request)
-      .await
+   let runtime = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()?;
+   let response = runtime
+      .block_on(bagel_admin::query(&cli.socket, &request))
       .with_context(|| format!("cannot reach the bagel daemon at {}", cli.socket.display()))?;
 
    let is_error = matches!(response, Response::Error(_));
@@ -113,6 +131,45 @@ async fn main() -> anyhow::Result<()> {
    }
 
    Ok(())
+}
+
+fn complete_ban(partial: &Partial<'_, '_>, _typed: &str) -> Vec<Candidate> {
+   let socket = partial
+      .arg("--socket")
+      .and_then(|given| given.last())
+      .map(PathBuf::from)
+      .or_else(|| std::env::var_os("BAGEL_ADMIN_SOCKET").map(PathBuf::from))
+      .unwrap_or_else(|| PathBuf::from(bagel_core::DEFAULT_ADMIN_SOCKET));
+
+   let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+   else {
+      return Vec::new();
+   };
+   let query = bagel_admin::query(&socket, &Request::ListBans);
+   let answer =
+      runtime.block_on(async { tokio::time::timeout(Duration::from_millis(500), query).await });
+   let Ok(Ok(Response::Bans(bans))) = answer else {
+      return Vec::new();
+   };
+
+   let now = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map_or(0, |since| since.as_secs());
+   bans
+      .into_iter()
+      .map(|ban| {
+         let expiry = ban.expires_at.map_or_else(
+            || "permanent".to_owned(),
+            |at| {
+               let left = at.saturating_sub(now);
+               format!("expires in {}h{:02}m", left / 3600, left % 3600 / 60)
+            },
+         );
+         Candidate::new(ban.network).help(format!("{}, {expiry}", ban.policy))
+      })
+      .collect()
 }
 
 #[expect(
