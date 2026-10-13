@@ -10,7 +10,7 @@ use bagel_admin::{
 use pound::Parse;
 
 #[derive(Parse)]
-#[pound(name = "bagel")]
+#[pound(name = "bagel", help_if_empty)]
 struct Cli {
    /// Path to the daemon admin socket.
    #[pound(
@@ -35,6 +35,7 @@ enum Command {
    /// Show daemon status and counters.
    Status,
    /// Add a manual durable ban for an address or CIDR.
+   #[pound(after_help = "Examples:\n  bagel block 203.0.113.0/24 --duration-secs 3600")]
    Block {
       network:       String,
       #[pound(long)]
