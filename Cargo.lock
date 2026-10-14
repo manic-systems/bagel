@@ -228,7 +228,7 @@ dependencies = [
  "bagel-admin",
  "bagel-core",
  "caress",
- "pound 0.4.2",
+ "pound 0.5.0",
  "serde_json",
  "tokio",
 ]
@@ -242,7 +242,7 @@ dependencies = [
  "ipnetwork",
  "knead",
  "knead-derive",
- "pound 0.4.2",
+ "pound 0.5.0",
  "regex",
  "serde",
  "tracing",
@@ -460,11 +460,11 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "caress"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28f77ddc5f5c464a8d23e20f9887a878d1e0f0ec996ec5f42e1dec4c1452e8ff"
+checksum = "b4d004238ba4fd5eed796d853ab8207163bf6e8b9c8c19c95a2952f11a0e3860"
 dependencies = [
- "pound 0.4.2",
+ "pound 0.5.0",
 ]
 
 [[package]]
@@ -2083,11 +2083,11 @@ dependencies = [
 
 [[package]]
 name = "pound"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71a98cdf41a4ea36c2980eedb512cc066db480413f38ac56bb42b29a753d9cf2"
+checksum = "bdfba649d8fb76342ca44ec50a41dd3432e4b2caf2d05c36b9865d781d86f13b"
 dependencies = [
- "pound-derive 0.4.2",
+ "pound-derive 0.5.0",
 ]
 
 [[package]]
@@ -2103,18 +2103,18 @@ dependencies = [
 
 [[package]]
 name = "pound-derive"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "256f135a40dc7cf3278732d4a44f92c9002fafb4639b3cfc8d8a5c00ff7ae710"
+checksum = "b235edb4b35992299d4d11727c4f71eae849258e608b000091087ca4dd546887"
 dependencies = [
  "pound-derive-impl",
 ]
 
 [[package]]
 name = "pound-derive-impl"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d395e7aa2c542e1a85fb9a2ceaf93ac51ac662e788c36ed84bb7d4ffed1cd505"
+checksum = "42cfdbbd715120c97205538df72868ab22ea29087ee6d66e569038bc9c3cfc90"
 dependencies = [
  "proc-macro2",
  "quote",
