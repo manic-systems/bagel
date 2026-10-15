@@ -597,7 +597,7 @@ pub struct Args {
 
    /// Hex-encoded PKCS8 seed for the web plane's Ed25519 key, which keeps
    /// challenge cookies and maze routes stable across restarts.
-   #[pound(long, env = "BAGEL_KEY_SEED")]
+   #[pound(long, env = "BAGEL_KEY_SEED", conflicts_with = key_seed_file)]
    pub key_seed: Option<String>,
 
    /// File holding the hex-encoded PKCS8 seed, typically a systemd credential.
@@ -609,13 +609,13 @@ pub struct Args {
    pub metrics_addr: Option<String>,
 
    /// Disable the metrics/status server.
-   #[pound(long)]
+   #[pound(long, conflicts_with = metrics_addr)]
    pub disable_metrics: bool,
 
    #[pound(long, env = "BAGEL_ADMIN_SOCKET")]
    pub admin_socket: Option<PathBuf>,
 
-   #[pound(long)]
+   #[pound(long, conflicts_with = admin_socket)]
    pub disable_admin: bool,
 
    /// Minimum delay between tarpit chunks, in milliseconds.
