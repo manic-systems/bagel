@@ -632,7 +632,7 @@ let
     })
     (series {
       title = "Maze";
-      description = "Requests into the maze by what their token said, plus renderer outcomes other than ok.";
+      description = "Requests into the maze by what their token said, plus renderer outcomes other than ok. Only a `valid_return` gets real links, every other page links to decoys, so `invalid` is the steady state of a walker deep in the maze.";
       x = 12;
       y = 43;
       w = 12;
