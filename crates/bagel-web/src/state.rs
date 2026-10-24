@@ -11,10 +11,6 @@ use arc_swap::{
 };
 use bagel_deception::Deceiver;
 use bagel_runtime::WebOffenseSource;
-use hyper_util::client::legacy::{
-   Client,
-   connect::HttpConnector,
-};
 use rhai::Engine;
 use ring::{
    rand::SystemRandom,
@@ -28,10 +24,7 @@ use vela::delivery::pool::Pool;
 
 use crate::{
    SourceNetwork,
-   body::{
-      Body,
-      Request,
-   },
+   body::Request,
    cache::FileCache,
    challenge::{
       ChallengeRegistry,
@@ -62,6 +55,7 @@ use crate::{
    },
    proxy::{
       self,
+      UpstreamClient,
       backend::BackendPool,
    },
    rule::{
@@ -118,7 +112,7 @@ pub struct Policy {
 /// Live machinery that survives reloads when its config is unchanged.
 pub struct Runtime {
    pub backends:           BackendPool,
-   pub http_client:        Client<HttpConnector, Body>,
+   pub http_client:        UpstreamClient,
    pub rhai_engine:        Engine,
    /// Shared across reloads unless the configured capacity changes.
    pub rate_tracker:       Arc<RateTracker>,

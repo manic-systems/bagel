@@ -8,21 +8,17 @@ use http::{
    Request,
    Uri,
    header,
-   uri::Authority,
 };
 use http_body_util::{
    BodyExt as _,
    Limited,
-};
-use hyper_util::client::legacy::{
-   Client,
-   connect::HttpConnector,
 };
 use regex::Regex;
 
 use crate::{
    body::Body,
    net::decay_map::DecayMap,
+   proxy::UpstreamClient,
 };
 
 static TAG_RE: LazyLock<Regex> =
@@ -44,28 +40,16 @@ pub struct HtmlTag {
 pub async fn fetch_tags(
    host: &str,
    cache: &DecayMap<String, Vec<HtmlTag>>,
-   http_client: &Client<HttpConnector, Body>,
-   backend_uri: &Uri,
+   http_client: &UpstreamClient,
+   backend_origin: &Uri,
 ) -> Vec<HtmlTag> {
    let host_key = host.to_owned();
    if let Some(tags) = cache.get(&host_key) {
       return tags;
    }
 
-   let uri = {
-      let scheme = backend_uri.scheme_str().unwrap_or("http");
-      let authority = backend_uri
-         .authority()
-         .map_or("localhost", Authority::as_str);
-      format!("{scheme}://{authority}/").parse::<Uri>().ok()
-   };
-
-   let Some(uri) = uri else {
-      return Vec::new();
-   };
-
    let req = Request::builder()
-      .uri(uri)
+      .uri(backend_origin.clone())
       .header(header::HOST, host)
       .header(header::USER_AGENT, "bagel/0.1 (tag-fetcher)")
       .body(Body::empty());

@@ -438,7 +438,7 @@ async fn evaluate_challenge_action(
                eval.host,
                &eval.state.runtime.tag_cache,
                &eval.state.runtime.http_client,
-               &backend.target,
+               &backend.origin,
             )
             .await;
             tag_fetcher::tags_to_template_values(&tags)

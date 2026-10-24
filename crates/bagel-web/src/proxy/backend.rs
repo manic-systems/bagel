@@ -1,5 +1,11 @@
 use std::{
    collections::HashSet,
+   ffi::OsStr,
+   os::unix::ffi::OsStrExt as _,
+   path::{
+      Path,
+      PathBuf,
+   },
    sync::Arc,
 };
 
@@ -7,7 +13,10 @@ use http::{
    HeaderName,
    HeaderValue,
    Uri,
-   uri::Scheme,
+   uri::{
+      Authority,
+      Scheme,
+   },
 };
 
 use crate::{
@@ -16,17 +25,96 @@ use crate::{
       CustomTheme,
    },
    error::Error,
+   hex_decode,
+   hex_encode,
    host::CanonicalHost,
 };
 
-/// A resolved backend: the config plus its target URI.
+pub const UNIX_SCHEME: &str = "unix";
+
+#[derive(Clone)]
+pub enum Upstream {
+   Tcp(Authority),
+   Unix(PathBuf),
+}
+
+/// A resolved backend: the config plus its upstream.
 #[derive(Clone)]
 pub struct Backend {
    pub config:       BackendConfig,
-   pub target:       hyper::Uri,
+   pub upstream:     Upstream,
+   pub origin:       Uri,
    pub host:         Option<HeaderValue>,
    pub ip_header:    Option<HeaderName>,
    pub custom_theme: CustomTheme,
+}
+
+#[must_use]
+pub fn unix_socket_path(uri: &Uri) -> Option<PathBuf> {
+   if uri.scheme_str() != Some(UNIX_SCHEME) {
+      return None;
+   }
+   let bytes = hex_decode(uri.host()?)?;
+   Some(PathBuf::from(OsStr::from_bytes(&bytes)))
+}
+
+impl Upstream {
+   fn parse(cfg: &BackendConfig) -> Result<Self, Error> {
+      let url = cfg.url.as_ref();
+      if let Some(path) = url.strip_prefix("unix:") {
+         if !Path::new(path).is_absolute() || path.starts_with("//") {
+            return Err(Error::Config(format!(
+               "backend '{}' needs an absolute Unix socket path, got {path}",
+               cfg.name,
+            )));
+         }
+         return Ok(Self::Unix(PathBuf::from(path)));
+      }
+
+      let target: Uri = url
+         .parse()
+         .map_err(|err| Error::Config(format!("invalid backend URL {url}: {err}")))?;
+
+      if target.scheme() != Some(&Scheme::HTTP) || target.host().is_none() {
+         return Err(Error::Config(format!(
+            "backend '{}' requires an absolute HTTP or unix: URL, upstream TLS is not implemented",
+            cfg.name,
+         )));
+      }
+      if target.path() != "/" || target.query().is_some() {
+         return Err(Error::Config(format!(
+            "backend '{}' URL cannot contain a path prefix or query",
+            cfg.name,
+         )));
+      }
+
+      let authority = target
+         .authority()
+         .expect("an absolute HTTP URL has an authority")
+         .clone();
+      Ok(Self::Tcp(authority))
+   }
+
+   /// A Unix socket gets its path hex-encoded as the authority, so each
+   /// socket keeps its own connection pool.
+   fn origin(&self) -> Result<Uri, http::Error> {
+      match self {
+         Self::Tcp(authority) => {
+            Uri::builder()
+               .scheme(Scheme::HTTP)
+               .authority(authority.clone())
+               .path_and_query("/")
+               .build()
+         },
+         Self::Unix(path) => {
+            Uri::builder()
+               .scheme(UNIX_SCHEME)
+               .authority(hex_encode(path.as_os_str().as_bytes()))
+               .path_and_query("/")
+               .build()
+         },
+      }
+   }
 }
 
 /// Pool of backends keyed by host pattern.
@@ -47,24 +135,10 @@ impl BackendPool {
       let mut seen = HashSet::new();
 
       for cfg in configs {
-         let target: Uri = cfg
-            .url
-            .as_ref()
-            .parse()
-            .map_err(|err| Error::Config(format!("invalid backend URL {}: {err}", cfg.url)))?;
-
-         if target.scheme() != Some(&Scheme::HTTP) || target.host().is_none() {
-            return Err(Error::Config(format!(
-               "backend '{}' requires an absolute HTTP URL, upstream TLS is not implemented",
-               cfg.name,
-            )));
-         }
-         if target.path() != "/" || target.query().is_some() {
-            return Err(Error::Config(format!(
-               "backend '{}' URL cannot contain a path prefix or query",
-               cfg.name,
-            )));
-         }
+         let upstream = Upstream::parse(cfg)?;
+         let origin = upstream.origin().map_err(|err| {
+            Error::Config(format!("backend '{}' has an invalid URL, {err}", cfg.name))
+         })?;
 
          let host = cfg
             .host
@@ -105,7 +179,8 @@ impl BackendPool {
 
          let backend = Arc::new(Backend {
             config: cfg.clone(),
-            target,
+            upstream,
+            origin,
             host,
             ip_header,
             custom_theme,

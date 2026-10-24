@@ -212,7 +212,7 @@ an ACME configuration the build can't honor fails validation rather than
 falling back to plaintext. Crawler verification by forward-confirmed reverse
 DNS needs `fcrdns`, on by default, and a `crawlers` block in a build without
 it fails validation rather than waving every claimed crawler through. Upstream
-proxy connections are HTTP only for now.
+proxy connections are plain HTTP, over TCP or a `unix:/path` socket.
 
 ## Reload and shutdown
 

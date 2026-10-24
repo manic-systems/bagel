@@ -1,9 +1,12 @@
 pub mod backend;
+mod upstream;
 
 use std::{
+   io,
    net::{
       IpAddr,
       Ipv4Addr,
+      Ipv6Addr,
       SocketAddr,
    },
    sync::Arc,
@@ -32,19 +35,12 @@ use hyper::{
    body::Incoming,
    client::conn::http1,
 };
-use hyper_util::{
-   client::legacy::{
-      Client,
-      connect::HttpConnector,
-   },
-   rt::{
-      TokioExecutor,
-      TokioIo,
-   },
-};
-use tokio::{
-   io::AsyncWriteExt as _,
-   net::TcpStream,
+use hyper_util::rt::TokioIo;
+use tokio::io::AsyncWriteExt as _;
+use upstream::UpstreamStream;
+pub use upstream::{
+   UpstreamClient,
+   build_http_client,
 };
 
 use crate::{
@@ -60,15 +56,7 @@ use crate::{
    tls::TlsFingerprint,
 };
 
-const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const UPSTREAM_HEADER_TIMEOUT: Duration = Duration::from_secs(30);
-
-#[must_use]
-pub fn build_http_client() -> Client<HttpConnector, Body> {
-   let mut connector = HttpConnector::new();
-   connector.set_connect_timeout(Some(UPSTREAM_CONNECT_TIMEOUT));
-   Client::builder(TokioExecutor::new()).build(connector)
-}
 
 fn bad_gateway(backend: &Backend, context: &'static str, err: &dyn std::fmt::Display) -> Response {
    tracing::error!(error = %err, backend = backend.config.name, "{context}");
@@ -83,18 +71,14 @@ fn upstream_timeout(backend: &Backend, context: &'static str) -> Response {
    )
 }
 
-async fn connect_backend(backend: &Backend, address: &str) -> Result<TcpStream, Response> {
-   match tokio::time::timeout(UPSTREAM_CONNECT_TIMEOUT, TcpStream::connect(address)).await {
-      Ok(Ok(stream)) => Ok(stream),
-      Ok(Err(err)) => Err(bad_gateway(backend, "failed to connect to backend", &err)),
-      Err(_) => Err(upstream_timeout(backend, "backend connect timed out")),
-   }
-}
-
-fn backend_address(authority: &Authority) -> String {
-   let host = authority.host();
-   let port = authority.port_u16().unwrap_or(80);
-   format!("{host}:{port}")
+async fn connect_backend(backend: &Backend) -> Result<UpstreamStream, Response> {
+   upstream::connect(&backend.upstream).await.map_err(|err| {
+      if err.kind() == io::ErrorKind::TimedOut {
+         upstream_timeout(backend, "backend connect timed out")
+      } else {
+         bad_gateway(backend, "failed to connect to backend", &err)
+      }
+   })
 }
 
 fn finish(resp: hyper::Response<Incoming>) -> Response {
@@ -108,20 +92,20 @@ fn finish(resp: hyper::Response<Incoming>) -> Response {
 }
 
 pub async fn proxy_request(
-   client: &Client<HttpConnector, Body>,
+   client: &UpstreamClient,
    backend: &Arc<Backend>,
    mut req: Request,
 ) -> Result<Response, Response> {
-   let target = &backend.target;
+   let origin = &backend.origin;
 
-   let scheme = target
+   let scheme = origin
       .scheme()
-      .expect("backend pool validates an absolute HTTP URL")
+      .expect("backend origin has a scheme")
       .clone();
 
-   let authority = target
+   let authority = origin
       .authority()
-      .expect("backend pool validates an absolute HTTP URL")
+      .expect("backend origin has an authority")
       .clone();
 
    let path_and_query = req
@@ -257,17 +241,23 @@ fn requested_upgrade(req: &Request) -> Option<HeaderValue> {
 /// Announce the real client to a backend that expects the PROXY preamble,
 /// before any HTTP bytes reach it.
 async fn write_proxy_header(
-   stream: &mut TcpStream,
+   stream: &mut UpstreamStream,
    client: Option<SocketAddr>,
    version: ProxyProtocolVersion,
-) -> std::io::Result<()> {
-   let local_addr = stream
-      .local_addr()
-      .unwrap_or_else(|_| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
-   let client_addr = client.unwrap_or(local_addr);
-   let dst_addr = stream
-      .peer_addr()
-      .unwrap_or_else(|_| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+) -> io::Result<()> {
+   let (local_addr, peer_addr) = stream.addresses();
+   let client_addr = client
+      .or(local_addr)
+      .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+   // Mixed address families degrade the header to UNKNOWN or LOCAL, which
+   // drops the client address, and a Unix socket has no peer address.
+   let dst_addr = peer_addr.unwrap_or_else(|| {
+      let unspecified = match client_addr.ip() {
+         IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+         IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+      };
+      SocketAddr::new(unspecified, 0)
+   });
 
    let header_bytes = match version {
       ProxyProtocolVersion::V1 => build_v1(client_addr, dst_addr).into_bytes(),
@@ -279,18 +269,12 @@ async fn write_proxy_header(
 /// Bypasses the pooled client, since an upgrade consumes the socket and the
 /// connection can never return to the pool.
 async fn proxy_upgrade(mut req: Request, backend: &Arc<Backend>) -> Result<Response, Response> {
-   let authority = backend
-      .target
-      .authority()
-      .expect("backend pool validates an absolute HTTP URL");
-   let addr_str = backend_address(authority);
-
-   let mut tcp_stream = connect_backend(backend, &addr_str).await?;
+   let mut stream = connect_backend(backend).await?;
 
    if let Some(pp_version) = backend.config.proxy_protocol_out {
       match tokio::time::timeout(
          UPSTREAM_HEADER_TIMEOUT,
-         write_proxy_header(&mut tcp_stream, req.extensions().get().copied(), pp_version),
+         write_proxy_header(&mut stream, req.extensions().get().copied(), pp_version),
       )
       .await
       {
@@ -308,7 +292,7 @@ async fn proxy_upgrade(mut req: Request, backend: &Arc<Backend>) -> Result<Respo
 
    let (mut sender, conn) = tokio::time::timeout(
       UPSTREAM_HEADER_TIMEOUT,
-      http1::handshake(TokioIo::new(tcp_stream)),
+      http1::handshake(TokioIo::new(stream)),
    )
    .await
    .map_err(|_| upstream_timeout(backend, "backend HTTP handshake timed out"))?
@@ -363,17 +347,11 @@ async fn proxy_with_proxy_protocol(
    backend: &Arc<Backend>,
    pp_version: ProxyProtocolVersion,
 ) -> Result<Response, Response> {
-   let authority = backend
-      .target
-      .authority()
-      .expect("backend pool validates an absolute HTTP URL");
-   let addr_str = backend_address(authority);
-
-   let mut tcp_stream = connect_backend(backend, &addr_str).await?;
+   let mut stream = connect_backend(backend).await?;
 
    match tokio::time::timeout(
       UPSTREAM_HEADER_TIMEOUT,
-      write_proxy_header(&mut tcp_stream, req.extensions().get().copied(), pp_version),
+      write_proxy_header(&mut stream, req.extensions().get().copied(), pp_version),
    )
    .await
    {
@@ -388,7 +366,7 @@ async fn proxy_with_proxy_protocol(
       Err(_) => return Err(upstream_timeout(backend, "PROXY protocol write timed out")),
    }
 
-   let io = TokioIo::new(tcp_stream);
+   let io = TokioIo::new(stream);
    let (mut sender, conn) = tokio::time::timeout(UPSTREAM_HEADER_TIMEOUT, http1::handshake(io))
       .await
       .map_err(|_| upstream_timeout(backend, "backend HTTP handshake timed out"))?
