@@ -9,6 +9,7 @@ use std::{
    sync::Arc,
 };
 
+use bagel_config::web::bind::TlsConfig;
 use http::{
    HeaderName,
    HeaderValue,
@@ -18,6 +19,7 @@ use http::{
       Scheme,
    },
 };
+use rustls::ServerConfig;
 
 use crate::{
    config::{
@@ -28,6 +30,7 @@ use crate::{
    hex_decode,
    hex_encode,
    host::CanonicalHost,
+   tls::build_server_config,
 };
 
 pub const UNIX_SCHEME: &str = "unix";
@@ -44,6 +47,7 @@ pub struct Backend {
    pub config:       BackendConfig,
    pub upstream:     Upstream,
    pub origin:       Uri,
+   pub tls:          Option<Arc<ServerConfig>>,
    pub host:         Option<HeaderValue>,
    pub ip_header:    Option<HeaderName>,
    pub custom_theme: CustomTheme,
@@ -117,6 +121,21 @@ impl Upstream {
    }
 }
 
+/// A wildcard certificate covers exactly one label, so one probe name below
+/// the suffix proves the certificate matches the pattern.
+fn certificate_name(pattern: &str) -> Option<String> {
+   match pattern {
+      "*" => None,
+      name => {
+         Some(
+            name
+               .strip_prefix("*.")
+               .map_or_else(|| name.to_owned(), |suffix| format!("wildcard.{suffix}")),
+         )
+      },
+   }
+}
+
 /// Pool of backends keyed by host pattern.
 /// Lookup order: exact match -> wildcard (*.domain) -> fallback ("*").
 #[derive(Clone)]
@@ -128,7 +147,11 @@ pub struct BackendPool {
 }
 
 impl BackendPool {
-   pub fn build(configs: &[BackendConfig], default_theme: &CustomTheme) -> Result<Self, Error> {
+   pub fn build(
+      configs: &[BackendConfig],
+      default_theme: &CustomTheme,
+      listener_tls: &TlsConfig,
+   ) -> Result<Self, Error> {
       let mut exact = Vec::new();
       let mut wildcard = Vec::new();
       let mut fallback = None;
@@ -139,6 +162,41 @@ impl BackendPool {
          let origin = upstream.origin().map_err(|err| {
             Error::Config(format!("backend '{}' has an invalid URL, {err}", cfg.name))
          })?;
+
+         let tls = match (&cfg.tls, listener_tls) {
+            (Some(_), TlsConfig::None) => {
+               return Err(Error::Config(format!(
+                  "backend '{}' has a certificate but the listener does not terminate TLS",
+                  cfg.name,
+               )));
+            },
+            (None, TlsConfig::Backend) => {
+               return Err(Error::Config(format!(
+                  "backend '{}' needs a certificate because the listener uses tls \"backend\"",
+                  cfg.name,
+               )));
+            },
+            (Some(_), TlsConfig::Manual { .. } | TlsConfig::Acme { .. }) if cfg.name == "*" => {
+               return Err(Error::Config(
+                  "backend '*' cannot have a certificate when the listener has its own, which \
+                   already covers unmatched names"
+                     .to_owned(),
+               ));
+            },
+            (Some(cert), _) => {
+               let name = certificate_name(&cfg.name);
+               let config = build_server_config(&cert.cert_path, &cert.key_path, name.as_deref())
+                  .map_err(|err| {
+                  Error::Config(format!(
+                     "backend '{}' certificate {}, {err}",
+                     cfg.name,
+                     cert.cert_path.display(),
+                  ))
+               })?;
+               Some(config)
+            },
+            (None, _) => None,
+         };
 
          let host = cfg
             .host
@@ -181,6 +239,7 @@ impl BackendPool {
             config: cfg.clone(),
             upstream,
             origin,
+            tls,
             host,
             ip_header,
             custom_theme,
@@ -255,6 +314,15 @@ impl BackendPool {
          .chain(&self.fallback)
          .find(|backend| backend.config.name == name)
          .map(Arc::clone)
+   }
+
+   #[must_use]
+   pub fn certificate(&self, server_name: Option<&str>) -> Option<Arc<ServerConfig>> {
+      let backend = match server_name {
+         Some(name) => self.select(CanonicalHost::parse(name).ok()?.as_str()),
+         None => self.fallback.clone(),
+      }?;
+      backend.tls.clone()
    }
 
    #[must_use]

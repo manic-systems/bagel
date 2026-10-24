@@ -373,6 +373,7 @@ dependencies = [
  "rustls",
  "rustls-acme",
  "rustls-pemfile",
+ "rustls-webpki",
  "serde",
  "serde_json",
  "socket2",

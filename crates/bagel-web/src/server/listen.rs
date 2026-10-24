@@ -158,9 +158,14 @@ pub(super) fn trusts_proxy_peer(shared: &SharedState, peer: IpAddr) -> bool {
 #[derive(Clone)]
 pub(super) enum Tls {
    None,
-   Manual(tokio_rustls::TlsAcceptor),
+   Terminate(Arc<ListenerCerts>),
+}
+
+/// Certificates for server names that no backend certificate covers.
+pub(super) struct ListenerCerts {
+   default:   Option<Arc<rustls::ServerConfig>>,
    #[cfg(feature = "acme")]
-   Acme(Arc<bagel_tls::acme::AcmeHandles>),
+   challenge: Option<Arc<rustls::ServerConfig>>,
 }
 
 /// Read until the whole `ClientHello` record is buffered, so it can be
@@ -225,15 +230,67 @@ async fn serve_stream(
       tracing::debug!(peer = %addr, "connection preface timed out");
       return;
    }
-   let fingerprint = if matches!(tls, Tls::None) {
-      TlsFingerprint::default()
-   } else {
-      TlsFingerprint::from(fill_client_hello(&mut peek_stream).await)
+   let Tls::Terminate(certs) = tls else {
+      serve_one_connection(
+         Box::new(peek_stream),
+         shared,
+         addr,
+         connection_peer,
+         TlsFingerprint::default(),
+         drop_fd,
+      )
+      .await;
+      return;
    };
-   match tls {
-      Tls::None => {
+
+   let fingerprint = TlsFingerprint::from(fill_client_hello(&mut peek_stream).await);
+   let acceptor =
+      tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), peek_stream);
+   let start = match tokio::time::timeout(PREFACE_TIMEOUT, acceptor).await {
+      Ok(Ok(start)) => start,
+      Ok(Err(err)) => {
+         tracing::debug!(error = %err, peer = %addr, "TLS accept failed");
+         return;
+      },
+      Err(_) => {
+         tracing::debug!(peer = %addr, "TLS accept timed out");
+         return;
+      },
+   };
+
+   #[cfg(feature = "acme")]
+   if let Some(challenge) = &certs.challenge
+      && bagel_tls::acme::is_tls_alpn_challenge(&start.client_hello())
+   {
+      use tokio::io::AsyncWriteExt as _;
+      match tokio::time::timeout(PREFACE_TIMEOUT, start.into_stream(Arc::clone(challenge))).await {
+         Ok(Ok(mut tls)) => {
+            let _ = tls.shutdown().await;
+         },
+         Ok(Err(err)) => {
+            tracing::debug!(error = %err, "ACME challenge handshake failed");
+         },
+         Err(_) => {
+            tracing::debug!("ACME challenge handshake timed out");
+         },
+      }
+      return;
+   }
+
+   let backend_config = shared
+      .load()
+      .runtime
+      .backends
+      .certificate(start.client_hello().server_name());
+   let Some(config) = backend_config.or_else(|| certs.default.clone()) else {
+      tracing::debug!(peer = %addr, "no certificate for the requested server name");
+      return;
+   };
+
+   match tokio::time::timeout(PREFACE_TIMEOUT, start.into_stream(config)).await {
+      Ok(Ok(tls)) => {
          serve_one_connection(
-            Box::new(peek_stream),
+            Box::new(tls),
             shared,
             addr,
             connection_peer,
@@ -242,88 +299,11 @@ async fn serve_stream(
          )
          .await;
       },
-      Tls::Manual(acceptor) => {
-         let tls_stream =
-            match tokio::time::timeout(PREFACE_TIMEOUT, acceptor.accept(peek_stream)).await {
-               Ok(Ok(stream)) => stream,
-               Ok(Err(err)) => {
-                  tracing::debug!(error = %err, peer = %addr, "TLS handshake failed");
-                  return;
-               },
-               Err(_) => {
-                  tracing::debug!(peer = %addr, "TLS handshake timed out");
-                  return;
-               },
-            };
-         serve_one_connection(
-            Box::new(tls_stream),
-            shared,
-            addr,
-            connection_peer,
-            fingerprint,
-            drop_fd,
-         )
-         .await;
+      Ok(Err(err)) => {
+         tracing::debug!(error = %err, peer = %addr, "TLS handshake failed");
       },
-      #[cfg(feature = "acme")]
-      Tls::Acme(handles) => {
-         use tokio::io::AsyncWriteExt as _;
-         let acceptor =
-            tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), peek_stream);
-         let start = match tokio::time::timeout(PREFACE_TIMEOUT, acceptor).await {
-            Ok(Ok(start)) => start,
-            Ok(Err(err)) => {
-               tracing::debug!(error = %err, peer = %addr, "TLS accept failed");
-               return;
-            },
-            Err(_) => {
-               tracing::debug!(peer = %addr, "TLS accept timed out");
-               return;
-            },
-         };
-         if bagel_tls::acme::is_tls_alpn_challenge(&start.client_hello()) {
-            match tokio::time::timeout(
-               PREFACE_TIMEOUT,
-               start.into_stream(Arc::clone(&handles.challenge_config)),
-            )
-            .await
-            {
-               Ok(Ok(mut tls)) => {
-                  let _ = tls.shutdown().await;
-               },
-               Ok(Err(err)) => {
-                  tracing::debug!(error = %err, "ACME challenge handshake failed");
-               },
-               Err(_) => {
-                  tracing::debug!("ACME challenge handshake timed out");
-               },
-            }
-            return;
-         }
-         match tokio::time::timeout(
-            PREFACE_TIMEOUT,
-            start.into_stream(Arc::clone(&handles.default_config)),
-         )
-         .await
-         {
-            Ok(Ok(tls)) => {
-               serve_one_connection(
-                  Box::new(tls),
-                  shared,
-                  addr,
-                  connection_peer,
-                  fingerprint,
-                  drop_fd,
-               )
-               .await;
-            },
-            Ok(Err(err)) => {
-               tracing::debug!(error = %err, peer = %addr, "TLS handshake failed");
-            },
-            Err(_) => {
-               tracing::debug!(peer = %addr, "TLS handshake timed out");
-            },
-         }
+      Err(_) => {
+         tracing::debug!(peer = %addr, "TLS handshake timed out");
       },
    }
 }
@@ -514,16 +494,29 @@ pub async fn serve(shared: SharedState, shutdown: CancellationToken) -> error::R
    bmetrics::init_metrics();
 
    let tls = match &tls_config {
+      TlsConfig::None => Tls::None,
+      TlsConfig::Backend => {
+         tracing::info!("TLS enabled (backend certs)");
+         Tls::Terminate(Arc::new(ListenerCerts {
+            default:                            None,
+            #[cfg(feature = "acme")]
+            challenge:                          None,
+         }))
+      },
       TlsConfig::Manual {
          cert_path,
          key_path,
       } => {
-         let acceptor = bagel_tls::build_tls_acceptor(cert_path, key_path)
-            .map_err(|err| error::Error::Tls(format!("failed to build TLS acceptor: {err}")))?;
+         let config = bagel_tls::build_server_config(cert_path, key_path, None).map_err(|err| {
+            error::Error::Tls(format!("failed to load {}, {err}", cert_path.display()))
+         })?;
          tracing::info!("TLS enabled (manual certs)");
-         Tls::Manual(acceptor)
+         Tls::Terminate(Arc::new(ListenerCerts {
+            default:                            Some(config),
+            #[cfg(feature = "acme")]
+            challenge:                          None,
+         }))
       },
-      TlsConfig::None => Tls::None,
       #[cfg(feature = "acme")]
       TlsConfig::Acme {
          directory_url,
@@ -536,7 +529,10 @@ pub async fn serve(shared: SharedState, shutdown: CancellationToken) -> error::R
             directory_url,
             cache_dir.as_deref(),
          );
-         Tls::Acme(Arc::new(handles))
+         Tls::Terminate(Arc::new(ListenerCerts {
+            default:   Some(handles.default_config),
+            challenge: Some(handles.challenge_config),
+         }))
       },
       #[cfg(not(feature = "acme"))]
       TlsConfig::Acme { .. } => {

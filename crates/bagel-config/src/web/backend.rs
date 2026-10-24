@@ -1,5 +1,6 @@
 use std::{
    fmt,
+   path::PathBuf,
    str::FromStr,
 };
 
@@ -93,4 +94,15 @@ pub struct BackendConfig {
    pub proxy_protocol_out: Option<ProxyProtocolVersion>,
    #[knead(child)]
    pub challenge_template: Option<CustomTheme>,
+   #[knead(child)]
+   pub tls:                Option<BackendTls>,
+}
+
+/// Certificate served when the TLS server name selects this backend.
+#[derive(Clone, Decode)]
+pub struct BackendTls {
+   #[knead(property(name = "cert"))]
+   pub cert_path: PathBuf,
+   #[knead(property(name = "key"))]
+   pub key_path:  PathBuf,
 }

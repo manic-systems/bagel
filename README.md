@@ -214,11 +214,34 @@ DNS needs `fcrdns`, on by default, and a `crawlers` block in a build without
 it fails validation rather than waving every claimed crawler through. Upstream
 proxy connections are plain HTTP, over TCP or a `unix:/path` socket.
 
+## TLS
+
+Bagel terminates TLS itself so it can fingerprint the ClientHello. A `tls`
+child on a backend binds a certificate to it, and the server name picks the
+backend by the same exact, wildcard and `*` order as the Host header. The
+listener's `tls "manual"` or `tls "acme"` certificate covers names no
+backend certificate does, so the `*` backend takes none there. With
+`tls "backend"` only backend certificates are served, and every backend
+needs one. A certificate that does not cover its backend's name fails
+validation.
+
+```kdl
+bind { address "[::]:443"; tls "backend"; }
+
+backends {
+    backend "example.com" {
+        url "unix:/run/nginx/example.sock"
+        tls cert="/var/lib/acme/example.com/fullchain.pem" key="/var/lib/acme/example.com/key.pem"
+    }
+}
+```
+
 ## Reload and shutdown
 
-SIGHUP reloads the web policy and carries signing keys, rate counters and
-poison memory across. Defense configuration and listener or TLS settings need
-a restart, and a rejected configuration leaves the running one in place.
+SIGHUP reloads the web policy and backend certificates, and carries signing
+keys, rate counters and poison memory across. Defense configuration and
+listener settings need a restart, and a rejected configuration leaves the
+running one in place.
 
 Shutdown closes defense record intake first and drains what was already
 queued, bounded by `drain-timeout-secs`. Web records the bounded queue had to

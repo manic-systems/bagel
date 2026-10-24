@@ -190,7 +190,11 @@ fn compile(config: &Config, seed_persistent: bool) -> error::Result<Compiled> {
       config.challenge_http_code,
       "",
    )?;
-   let backends = BackendPool::build(&config.backends, &config.challenge_template)?;
+   let backends = BackendPool::build(
+      &config.backends,
+      &config.challenge_template,
+      &config.bind.tls,
+   )?;
    crate::state_validation::validate_proxy_backends(&rules, &backends)?;
    let scoring = config
       .policy

@@ -21,6 +21,8 @@ use knead_derive::Decode;
 #[derive(Clone, PartialEq, Eq)]
 pub enum TlsConfig {
    None,
+   /// Terminate TLS with the certificates bound to backends only.
+   Backend,
    Acme {
       directory_url: String,
       domains:       Vec<String>,
@@ -35,6 +37,7 @@ pub enum TlsConfig {
 #[derive(Decode)]
 enum TlsInput {
    None,
+   Backend,
    Acme {
       #[knead(argument, default = "https://acme-v02.api.letsencrypt.org/directory".to_owned())]
       directory_url: String,
@@ -65,6 +68,7 @@ impl Decode for TlsConfig {
 
       match TlsInput::decode(decoder)? {
          TlsInput::None => Ok(Self::None),
+         TlsInput::Backend => Ok(Self::Backend),
          TlsInput::Acme {
             directory_url,
             domains,

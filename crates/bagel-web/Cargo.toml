@@ -33,6 +33,7 @@ tokio-util.workspace     = true
 # TLS
 rustls.workspace         = true
 rustls-pemfile.workspace = true
+rustls-webpki.workspace  = true
 tokio-rustls.workspace   = true
 
 # Expressions
