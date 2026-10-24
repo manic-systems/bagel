@@ -146,6 +146,7 @@ in
           "--base-dir"
           cfg.stateDir
         ];
+        ExecReload = "${lib.getExe' pkgs.coreutils "kill"} -HUP $MAINPID";
         LoadCredential = optionals (cfg.keySeedFile != null) [ "key-seed:${cfg.keySeedFile}" ];
         ExecStopPost = optionals enforceRequired [
           "-nft delete table inet ${cfg.enforcementTable}"
