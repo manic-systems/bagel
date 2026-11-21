@@ -216,22 +216,22 @@ fn apply_filter(body: &str, filter: &NetworkFilter) -> bagel_core::Result<Vec<St
 /// Supports patterns like: `.prefixes[].ip_prefix`, `.field`, `.array[]`.
 fn extract_jq_path(value: &Value, path: &str) -> Vec<String> {
    let path = path.trim_start_matches('.');
-   let mut results = vec![value.clone()];
+   let mut results = vec![value];
 
    for segment in split_jq_segments(path) {
       let mut next = Vec::new();
-      for val in &results {
+      for val in results {
          if let Some(field) = segment.strip_suffix("[]") {
             let target = if field.is_empty() {
-               val.clone()
+               Some(val)
             } else {
-               val.get(field).cloned().unwrap_or(Value::Null)
+               val.get(field)
             };
-            if let Value::Array(arr) = target {
+            if let Some(Value::Array(arr)) = target {
                next.extend(arr);
             }
          } else if let Some(sub) = val.get(segment) {
-            next.push(sub.clone());
+            next.push(sub);
          }
       }
       results = next;
@@ -239,12 +239,8 @@ fn extract_jq_path(value: &Value, path: &str) -> Vec<String> {
 
    results
       .into_iter()
-      .filter_map(|val| {
-         match val {
-            Value::String(str_val) => Some(str_val),
-            _ => None,
-         }
-      })
+      .filter_map(Value::as_str)
+      .map(ToOwned::to_owned)
       .collect()
 }
 
