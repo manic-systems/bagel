@@ -6,6 +6,7 @@
   stdenv,
   buildPackages,
   pkgsBuildBuild,
+  installShellFiles,
   pkg-config,
   openssl,
   cacert,
@@ -48,6 +49,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   strictDeps = true;
   nativeBuildInputs = [
+    installShellFiles
     pkg-config
     lld
     binaryen
@@ -80,7 +82,19 @@ rustPlatform.buildRustPackage (finalAttrs: {
     ''
       install -Dm644 -t $out/share/bagel/corpus ${contrib}/corpus/*.txt
       install -Dm644 -t $out/share/bagel/scripts ${contrib}/rhai/*.rhai
-    '';
+    ''
+    + lib.optionalString (stdenv.hostPlatform.emulatorAvailable buildPackages) (
+      let
+        bagel = "${stdenv.hostPlatform.emulator buildPackages} $out/bin/bagel";
+      in
+      ''
+        installShellCompletion --cmd bagel \
+          --bash    <(COMPLETE=bash ${bagel}) \
+          --zsh     <(COMPLETE=zsh  ${bagel}) \
+          --fish    <(COMPLETE=fish ${bagel}) \
+          --nushell <(COMPLETE=nu   ${bagel})
+      ''
+    );
 
   meta = {
     description = "Proxy daemon and SSH tarpit for delaying malicious scanners";

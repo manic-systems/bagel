@@ -86,6 +86,19 @@ The module enables nftables, grants `CAP_NET_ADMIN` when `enforcementMode` is
 module can't read KDL, and validates the config at build time so a bad file
 fails the system build rather than the service.
 
+## Completions
+
+The Nix package installs completions for Bash, Zsh, Fish and Nushell. To set
+completions up by hand, source the script bagel prints.
+
+| shell  | setup                                                      |
+|--------|------------------------------------------------------------|
+| bash   | `source <(COMPLETE=bash bagel)`                            |
+| zsh    | `COMPLETE=zsh bagel > ~/.zfunc/_bagel`, with it in `fpath` |
+| fish   | `COMPLETE=fish bagel \| source`                            |
+| nu     | `COMPLETE=nu bagel \| save bagel.nu`, then `source` it     |
+| elvish | `eval (env COMPLETE=elvish bagel \| slurp)`                |
+
 ## Configuration
 
 One KDL file configures both planes, web nodes at the top level and the defense
