@@ -76,6 +76,10 @@ tracing.workspace          = true
 thiserror.workspace        = true
 vela.workspace             = true
 
+# malloc_trim
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc.workspace = true
+
 [build-dependencies]
 bagel-solver = { features = [ "host" ], workspace = true }
 vela.workspace         = true

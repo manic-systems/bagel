@@ -101,7 +101,21 @@ pub async fn load_networks(
       );
    }
 
+   #[cfg(all(target_os = "linux", target_env = "gnu"))]
+   release_freed_memory();
    Ok(networks)
+}
+
+/// Hand the parse buffers of large network sources back to the kernel.
+/// glibc keeps freed heap memory otherwise, which leaves tens of megabytes
+/// resident for the life of the daemon after a single cloud range list.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_freed_memory() {
+   // SAFETY: malloc_trim only walks the allocator's own free lists and is
+   // safe to call from any thread at any time.
+   unsafe {
+      libc::malloc_trim(0);
+   }
 }
 
 async fn load_source(
