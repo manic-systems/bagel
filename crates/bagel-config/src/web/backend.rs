@@ -1,6 +1,7 @@
 use std::{
    fmt,
    str::FromStr,
+   time::Duration,
 };
 
 use bagel_core::Error;
@@ -14,7 +15,10 @@ use knead::{
 };
 use knead_derive::Decode;
 
-use crate::web::CustomTheme;
+use crate::web::{
+   CustomTheme,
+   policy::parse_duration,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProxyProtocolVersion {
@@ -43,6 +47,21 @@ impl DecodeScalar for ProxyProtocolVersion {
       let version = u8::decode(value)?;
       Self::try_from(version)
          .map_err(|error| DecodeError::new(ErrorKind::Conversion, value.span, error.to_string()))
+   }
+}
+
+/// How long to wait for a backend's response headers.
+#[derive(Clone, Copy)]
+pub struct ResponseTimeout(pub Duration);
+
+impl FromStr for ResponseTimeout {
+   type Err = Error;
+
+   fn from_str(text: &str) -> Result<Self, Self::Err> {
+      match parse_duration(text) {
+         Some(duration) if !duration.is_zero() => Ok(Self(duration)),
+         _ => Err(Error::Config(format!("invalid response-timeout {text:?}"))),
+      }
    }
 }
 
@@ -77,6 +96,7 @@ impl fmt::Display for BackendUrl {
 /// backend "git.example.com" {
 ///     url "http://forgejo:3000"
 ///     ip-header "X-Real-Ip"
+///     response-timeout "90s"
 /// }
 /// ```
 #[derive(Clone, Decode)]
@@ -91,6 +111,8 @@ pub struct BackendConfig {
    pub ip_header:          Option<String>,
    #[knead(child, unwrap(argument))]
    pub proxy_protocol_out: Option<ProxyProtocolVersion>,
+   #[knead(child, unwrap(argument, str))]
+   pub response_timeout:   Option<ResponseTimeout>,
    #[knead(child)]
    pub challenge_template: Option<CustomTheme>,
 }

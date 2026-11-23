@@ -63,6 +63,13 @@ use crate::{
 const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const UPSTREAM_HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn response_timeout(backend: &Backend) -> Duration {
+   backend
+      .config
+      .response_timeout
+      .map_or(UPSTREAM_HEADER_TIMEOUT, |timeout| timeout.0)
+}
+
 #[must_use]
 pub fn build_http_client() -> Client<HttpConnector, Body> {
    let mut connector = HttpConnector::new();
@@ -200,7 +207,7 @@ pub async fn proxy_request(
       return proxy_with_proxy_protocol(req, backend, pp_version).await;
    }
 
-   let resp = tokio::time::timeout(UPSTREAM_HEADER_TIMEOUT, client.request(req))
+   let resp = tokio::time::timeout(response_timeout(backend), client.request(req))
       .await
       .map_err(|_| upstream_timeout(backend, "upstream response timed out"))?
       .map_err(|err| bad_gateway(backend, "proxy request failed", &err))?;
@@ -408,7 +415,7 @@ async fn proxy_with_proxy_protocol(
 
    let (parts, body) = req.into_parts();
    let req = HyperRequest::from_parts(parts, body);
-   let resp = tokio::time::timeout(UPSTREAM_HEADER_TIMEOUT, sender.send_request(req))
+   let resp = tokio::time::timeout(response_timeout(backend), sender.send_request(req))
       .await
       .map_err(|_| upstream_timeout(backend, "upstream response timed out"))?
       .map_err(|err| {
